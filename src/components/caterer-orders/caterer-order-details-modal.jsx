@@ -56,7 +56,6 @@ function CatererOrderDetailsModal({ order, isOpen, onClose, onRefresh }) {
     if (!statusConfirmationDialog.isOpen && shouldOpenPaymentDialog) {
       const orderInfo = orderDetails || order;
       const paymentInfo = getPaymentInfo(orderInfo);
-      console.log("sppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp ", paymentInfo);
       // Find actual caterer ID from database
       const findCatererAndOpenDialog = async () => {
         let actualCatererId = null;
@@ -108,7 +107,6 @@ function CatererOrderDetailsModal({ order, isOpen, onClose, onRefresh }) {
 
       if (result.success) {
         setOrderDetails(result.data);
-        console.log('📋 Order details fetched:', result.data);
       }
     } catch (error) {
       console.error('Error fetching order details:', error);
@@ -175,7 +173,6 @@ function CatererOrderDetailsModal({ order, isOpen, onClose, onRefresh }) {
 
   // ✅ FIXED: Handle when user says they received payment - check for existing bills first
   const handlePaymentReceived = async () => {
-    console.log('💳 [MODAL] Payment received handler called');
     setStatusConfirmationDialog({ isOpen: false, orderDetails: null, newStatus: '', currentStatus: '' });
     
     // Check if bill already exists for this order to prevent duplicates
@@ -185,7 +182,6 @@ function CatererOrderDetailsModal({ order, isOpen, onClose, onRefresh }) {
       
       if (checkResult.success && checkResult.data && checkResult.data.length > 0) {
         // Use existing bill
-        console.log('📋 Using existing bill:', checkResult.data[0]);
         const existingBill = checkResult.data[0];
         
         // Find actual caterer ID
@@ -213,19 +209,17 @@ function CatererOrderDetailsModal({ order, isOpen, onClose, onRefresh }) {
         });
       } else {
         // Create new bill only if none exists
-        console.log('📋 No existing bill found, creating new one');
         setShouldOpenPaymentDialog(true);
       }
     } catch (error) {
       console.error('Error checking existing bills:', error);
-      // Fallback to creating new bill
-      setShouldOpenPaymentDialog(true);
+        // Fallback to creating new bill
+        setShouldOpenPaymentDialog(true);
     }
   };
 
   // Handle when user says no payment was received (from status confirmation dialog)
   const handleNoPaymentReceived = async () => {
-    console.log('❌ [MODAL] No payment received handler called');
     try {
       setUpdating(true);
       setStatusConfirmationDialog({ isOpen: false, orderDetails: null, newStatus: '', currentStatus: '' });
@@ -259,7 +253,6 @@ function CatererOrderDetailsModal({ order, isOpen, onClose, onRefresh }) {
 
   // Handle non-delivered status confirmation (used for other status updates)
   const handleConfirmPayment = async () => {
-    console.log('✅ [MODAL] Confirm status update handler called for:', statusConfirmationDialog.newStatus);
     try {
       setUpdating(true);
       setStatusConfirmationDialog({ isOpen: false, orderDetails: null, newStatus: '', currentStatus: '' });
@@ -293,30 +286,20 @@ function CatererOrderDetailsModal({ order, isOpen, onClose, onRefresh }) {
 
   // Handle dialog cancellation
   const handleCancelPayment = () => {
-    console.log('🚫 [MODAL] Cancel status update handler called');
     setStatusConfirmationDialog({ isOpen: false, orderDetails: null, newStatus: '', currentStatus: '' });
   };
 
   // ✅ FIXED: Handle payment submission - properly defined function
   const handlePaymentSubmit = async (formData) => {
-    console.log('💳 Payment submission started from CatererOrderDetailsModal');
-    
     try {
       setUpdating(true);
       
-      // Debug: Log FormData contents
-      console.log('📝 FormData contents:');
-      for (let [key, value] of formData.entries()) {
-        console.log(`  ${key}:`, value);
-      }
-
       const response = await fetch('http://localhost:5000/api/caterer-orders/payments', {
         method: 'POST',
         body: formData
       });
 
       const result = await response.json();
-      console.log('💰 Payment response:', result);
 
       if (result.success) {
         // Payment recorded successfully, now mark order as delivered
@@ -332,7 +315,6 @@ function CatererOrderDetailsModal({ order, isOpen, onClose, onRefresh }) {
         });
 
         const deliverResult = await deliverResponse.json();
-        console.log('🚚 Delivery status update:', deliverResult);
 
         if (deliverResult.success) {
           alert('Payment recorded and order marked as delivered successfully!');
@@ -361,12 +343,6 @@ function CatererOrderDetailsModal({ order, isOpen, onClose, onRefresh }) {
 
   // SIMPLIFIED: Get payment status and amounts - using only data from caterer_orders table
   const getPaymentInfo = (orderData) => {
-    console.log('📊 Raw order data for payment calculation: sppppppppppppppppp', {
-      payment_amount: orderData.payment_amount,
-      total_amount: orderData.total_amount,
-      total_paid_amount: orderData.total_paid_amount
-    });
-    
     // SIMPLIFIED: Use payment_amount from caterer_orders table (this is the advance payment made during order creation)
     // Plus any additional payments recorded in caterer_payments table (total_paid_amount from JOIN)
     const orderPaymentAmount = Number(orderData.payment_amount || 0);
@@ -376,14 +352,6 @@ function CatererOrderDetailsModal({ order, isOpen, onClose, onRefresh }) {
     const totalPaid = orderPaymentAmount + additionalPayments;
     const totalAmount = Number(orderData.total_amount || 0);
     const remainingBalance = Math.max(0, totalAmount - totalPaid);
-
-    console.log('🧮 Simplified payment calculation:', {
-      orderPaymentAmount, // From caterer_orders.payment_amount
-      additionalPayments, // From caterer_payments via JOIN
-      totalPaid,
-      totalAmount,
-      remainingBalance
-    });
 
     let paymentStatus = 'Unpaid';
     let statusColor = 'text-red-600';
