@@ -1,0 +1,21 @@
+@import "tailwindcss";
+
+.app-layout {
+  display: flex;
+  height: 100vh;
+}
+
+.sidebar {
+  flex-shrink: 0;
+  width: 16rem;
+  z-index: 10;
+}
+
+.content {
+  flex-grow: 1;
+  overflow-y: auto;
+  background-color: #f8f9fa;
+  padding: 2rem;
+  position: relative;
+  z-index: 1;
+}

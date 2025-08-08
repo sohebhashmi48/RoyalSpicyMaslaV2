@@ -1,0 +1,240 @@
+/* Responsive utilities for RoyalSpicyMasala */
+
+/* Base responsive breakpoints */
+/* sm: 640px */
+/* md: 768px */
+/* lg: 1024px */
+/* xl: 1280px */
+/* 2xl: 1536px */
+
+/* Layout fixes */
+.layout-container {
+  @apply flex min-h-screen bg-gray-50 overflow-hidden;
+}
+
+.sidebar-container {
+  @apply flex-shrink-0;
+}
+
+.main-content-container {
+  @apply flex-1 flex flex-col min-w-0 overflow-hidden;
+}
+
+.main-content {
+  @apply flex-1 overflow-auto w-full;
+}
+
+.content-wrapper {
+  @apply w-full max-w-none;
+}
+
+/* Card component responsive styles */
+.card {
+  @apply bg-white rounded-lg shadow-sm border border-gray-200 p-4 sm:p-6;
+}
+
+/* Responsive grid utilities */
+.responsive-grid-1 {
+  @apply grid grid-cols-1;
+}
+
+.responsive-grid-2 {
+  @apply grid grid-cols-1 sm:grid-cols-2;
+}
+
+.responsive-grid-3 {
+  @apply grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3;
+}
+
+.responsive-grid-4 {
+  @apply grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4;
+}
+
+/* Responsive spacing */
+.responsive-gap {
+  @apply gap-4 sm:gap-6;
+}
+
+.responsive-padding {
+  @apply p-4 sm:p-6 lg:p-8;
+}
+
+.responsive-margin {
+  @apply m-4 sm:m-6 lg:m-8;
+}
+
+/* Responsive text sizes */
+.responsive-text-sm {
+  @apply text-sm sm:text-base;
+}
+
+.responsive-text-base {
+  @apply text-base sm:text-lg;
+}
+
+.responsive-text-lg {
+  @apply text-lg sm:text-xl;
+}
+
+.responsive-text-xl {
+  @apply text-xl sm:text-2xl;
+}
+
+.responsive-text-2xl {
+  @apply text-2xl sm:text-3xl;
+}
+
+/* Button responsive styles */
+.btn-responsive {
+  @apply px-3 py-2 sm:px-4 sm:py-2 text-sm sm:text-base;
+}
+
+/* Table responsive wrapper */
+.table-responsive {
+  @apply overflow-x-auto;
+}
+
+.table-responsive table {
+  @apply min-w-full;
+}
+
+/* Hide/show elements based on screen size */
+.mobile-only {
+  @apply block sm:hidden;
+}
+
+.desktop-only {
+  @apply hidden sm:block;
+}
+
+.tablet-up {
+  @apply hidden md:block;
+}
+
+.desktop-up {
+  @apply hidden lg:block;
+}
+
+/* Responsive flex utilities */
+.flex-responsive {
+  @apply flex flex-col sm:flex-row;
+}
+
+.flex-responsive-reverse {
+  @apply flex flex-col-reverse sm:flex-row;
+}
+
+/* Responsive container */
+.container-responsive {
+  @apply w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8;
+}
+
+/* Sidebar responsive adjustments */
+.sidebar-offset {
+  @apply lg:ml-64 xl:ml-72;
+}
+
+/* Form responsive styles */
+.form-responsive {
+  @apply space-y-4 sm:space-y-6;
+}
+
+.form-group-responsive {
+  @apply flex flex-col sm:flex-row sm:items-center sm:space-x-4 space-y-2 sm:space-y-0;
+}
+
+.input-responsive {
+  @apply w-full px-3 py-2 sm:px-4 sm:py-2 text-sm sm:text-base;
+}
+
+/* Stats card responsive */
+.stats-card {
+  @apply bg-white rounded-lg shadow-sm border border-gray-200 p-4 sm:p-6;
+}
+
+.stats-grid {
+  @apply grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6;
+}
+
+/* Navigation responsive */
+.nav-responsive {
+  @apply flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-4;
+}
+
+/* Modal responsive */
+.modal-responsive {
+  @apply w-full max-w-md sm:max-w-lg lg:max-w-xl xl:max-w-2xl mx-4 sm:mx-auto;
+}
+
+/* Image responsive */
+.img-responsive {
+  @apply w-full h-auto;
+}
+
+/* Responsive utilities for specific components */
+.dashboard-header {
+  @apply flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-4 sm:space-y-0;
+}
+
+.action-buttons {
+  @apply flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-2;
+}
+
+/* Print styles */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  
+  .print-full-width {
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .card {
+    @apply border-2 border-gray-900;
+  }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Dark mode support (if needed in future) */
+@media (prefers-color-scheme: dark) {
+  /* Dark mode styles can be added here */
+}
+
+/* Focus styles for accessibility */
+.focus-visible {
+  @apply focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2;
+}
+
+/* Responsive aspect ratios */
+.aspect-responsive {
+  @apply aspect-square sm:aspect-video;
+}
+
+/* Responsive overflow handling */
+.overflow-responsive {
+  @apply overflow-hidden sm:overflow-visible;
+}
+
+/* Responsive positioning */
+.position-responsive {
+  @apply relative sm:absolute;
+}
+
+/* Responsive z-index */
+.z-responsive {
+  @apply z-10 sm:z-20 lg:z-30;
+}
