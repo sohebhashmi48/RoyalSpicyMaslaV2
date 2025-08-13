@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
@@ -18,9 +18,13 @@ import {
   Clock,
   Truck,
   XCircle,
-  IndianRupee
+  IndianRupee,
+  X,
+  FileText,
+  CreditCard
 } from 'lucide-react';
 import { useToast } from '../../contexts/ToastContext';
+import BatchAllocationDialog from './BatchAllocationDialog';
 import PaymentConfirmationDialog from './PaymentConfirmationDialog';
 import PaymentCollectionDialog from '../../pages/orders/customerhistory/customers-detailed-page/PaymentCollectionDialog';
 
@@ -129,6 +133,7 @@ export default function OrderDetailsModal({ order, isOpen, onClose, onRefresh })
     selectedBill: null
   });
   const [isPaymentLoading, setIsPaymentLoading] = useState(false);
+  const [allocationDialogOpen, setAllocationDialogOpen] = useState(false);
 
   // Reset state when modal opens/closes or order changes
   useEffect(() => {
@@ -162,6 +167,14 @@ export default function OrderDetailsModal({ order, isOpen, onClose, onRefresh })
         const result = await response.json();
 
         if (result.success && result.data) {
+          console.log('🔥 [ORDER DETAILS DEBUG] Received order data:', {
+            orderId: result.data.id,
+            orderNumber: result.data.order_number,
+            itemsCount: result.data.items?.length || 0,
+            mixItems: result.data.items?.filter(item => item.source === 'mix-calculator') || [],
+            firstMixItem: result.data.items?.[0]
+          });
+          
           setOrderDetails(result.data);
           setNewStatus(result.data.status);
         }
@@ -191,8 +204,26 @@ export default function OrderDetailsModal({ order, isOpen, onClose, onRefresh })
   const handleStatusUpdate = async () => {
     if (newStatus === displayOrder.status) return;
 
+    // If moving to processing, require allocations first
+    if (newStatus === 'processing') {
+      setAllocationDialogOpen(true);
+      return;
+    }
+
     setIsLoading(true);
     try {
+      // If delivering, first deduct inventory based on saved allocations
+      if (newStatus === 'delivered') {
+        const deductRes = await fetch(`http://localhost:5000/api/orders/${displayOrder.id}/deliver-with-deduction`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ markDelivered: false })
+        });
+        const deductData = await deductRes.json();
+        if (!deductData.success) {
+          throw new Error(deductData.message || 'Failed to deduct inventory. Ensure batches are allocated.');
+        }
+      }
       const response = await fetch(`http://localhost:5000/api/orders/${displayOrder.id}/status`, {
         method: 'PUT',
         headers: {
@@ -411,476 +442,296 @@ export default function OrderDetailsModal({ order, isOpen, onClose, onRefresh })
   return (
     <Dialog open={isOpen} onOpenChange={handleClose}>
       <DialogContent className="max-w-[90vw] max-h-[95vh] p-0 overflow-hidden">
-        {/* Fixed Header */}
-        <div className="p-8 pb-4 border-b border-gray-100">
-          <DialogHeader>
-            <DialogTitle className="flex items-center justify-between text-2xl font-bold">
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-600 rounded-xl flex items-center justify-center text-white font-bold text-lg shadow-lg">
-                  #{order.order_number?.slice(-3) || '000'}
-                </div>
-                <div>
-                  <h1 className="text-2xl font-bold text-gray-900">Order Details</h1>
-                  <p className="text-sm text-gray-500 font-normal">#{order.order_number}</p>
-                </div>
-              </div>
-              <Badge className={`${getStatusColor(displayOrder.status)} flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-full shadow-sm`}>
-                {getStatusIcon(displayOrder.status)}
-                {displayOrder.status.replace('_', ' ').toUpperCase()}
-              </Badge>
-            </DialogTitle>
-          </DialogHeader>
+        <div className="flex items-center justify-between p-6 border-b border-gray-200">
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-600 rounded-xl flex items-center justify-center text-white font-bold text-lg shadow-lg">
+              #{order.order_number?.slice(-3) || '000'}
+            </div>
+            <div>
+              <h2 className="text-2xl font-bold text-gray-900">Order Details</h2>
+              <p className="text-sm text-gray-500">#{order.order_number}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className={`inline-flex px-3 py-1 text-sm font-semibold rounded-full ${getStatusColor(displayOrder.status)}`}>
+              {displayOrder.status.replace('_', ' ')}
+            </span>
+          </div>
         </div>
 
-        {/* Scrollable Content */}
-        <div className="flex-1 overflow-y-auto p-8 pt-4">
-          <div className="space-y-8">
-          {/* Header Actions */}
-          <div className="flex justify-between items-center bg-gradient-to-r from-gray-50 to-blue-50 p-6 rounded-xl border border-gray-200">
-            <div className="flex items-center gap-4">
-              <div className="text-sm text-gray-600">
-                <span className="font-medium">Current Status:</span>
-              </div>
-              <Badge className={`${getStatusColor(displayOrder.status)} flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-full shadow-sm`}>
-                {getStatusIcon(displayOrder.status)}
-                {displayOrder.status.replace('_', ' ').toUpperCase()}
-              </Badge>
-            </div>
-
-            <div className="flex gap-3">
-              <Button onClick={handlePrint} variant="outline" className="shadow-sm hover:shadow-md transition-shadow">
-                <Printer className="h-4 w-4 mr-2" />
-                Print Receipt
-              </Button>
-            </div>
-          </div>
-
-          {/* Order Information */}
+        <div className="p-6">
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <Card className="shadow-lg border-0 bg-white rounded-2xl overflow-hidden">
-              <CardHeader className="bg-gradient-to-r from-blue-50 to-indigo-50 p-6">
-                <CardTitle className="flex items-center gap-3 text-lg font-semibold text-gray-800">
-                  <div className="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center">
-                    <User className="h-4 w-4 text-white" />
-                  </div>
+            <div className="lg:col-span-2 space-y-6">
+              <div className="bg-gray-50 rounded-lg p-4">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                  <User className="h-5 w-5" />
                   Customer Information
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4 p-6">
-                <div className="flex items-center gap-2">
-                  <User className="h-4 w-4 text-gray-500" />
-                  <span>{displayOrder.customer_name}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Phone className="h-4 w-4 text-gray-500" />
-                  <span>{displayOrder.customer_phone}</span>
-                </div>
-                {displayOrder.customer_email && (
-                  <div className="flex items-center gap-2">
-                    <Mail className="h-4 w-4 text-gray-500" />
-                    <span>{displayOrder.customer_email}</span>
-                  </div>
-                )}
-                <div className="flex items-start gap-2">
-                  <MapPin className="h-4 w-4 text-gray-500 mt-1" />
-                  <span className="text-sm">{displayOrder.delivery_address}</span>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card className="shadow-lg border-0 bg-white rounded-2xl overflow-hidden">
-              <CardHeader className="bg-gradient-to-r from-green-50 to-emerald-50 p-6">
-                <CardTitle className="flex items-center gap-3 text-lg font-semibold text-gray-800">
-                  <div className="w-8 h-8 bg-green-500 rounded-lg flex items-center justify-center">
-                    <Calendar className="h-4 w-4 text-white" />
-                  </div>
-                  Order Information
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4 p-6">
-                <div>
-                  <span className="text-sm text-gray-500">Order Date:</span>
-                  <p className="font-medium">{formatDate(displayOrder.created_at)}</p>
-                </div>
-                <div>
-                  <span className="text-sm text-gray-500">Source:</span>
-                  <p className="font-medium capitalize">{displayOrder.order_source}</p>
-                </div>
-                {displayOrder.approved_at && (
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <span className="text-sm text-gray-500">Approved:</span>
-                    <p className="font-medium">{formatDate(displayOrder.approved_at)}</p>
-                    {displayOrder.approved_by_name && (
-                      <p className="text-sm text-gray-500">by {displayOrder.approved_by_name}</p>
-                    )}
+                    <label className="text-sm font-medium text-gray-600">Name</label>
+                    <p className="text-gray-900 font-medium">{displayOrder.customer_name}</p>
                   </div>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Order Summary */}
-            <Card className="shadow-lg border-0 bg-white rounded-2xl overflow-hidden">
-              <CardHeader className="bg-gradient-to-r from-indigo-50 to-blue-50 p-6">
-                <CardTitle className="flex items-center gap-3 text-lg font-semibold text-gray-800">
-                  <div className="w-8 h-8 bg-indigo-500 rounded-lg flex items-center justify-center">
-                    <IndianRupee className="h-4 w-4 text-white" />
+                  <div>
+                    <label className="text-sm font-medium text-gray-600">Phone</label>
+                    <p className="text-gray-900 flex items-center gap-1">
+                      <Phone className="h-4 w-4" />
+                      {displayOrder.customer_phone}
+                    </p>
                   </div>
-                  Order Summary
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4 p-6">
-                <div className="flex justify-between">
-                  <span className="text-sm text-gray-500">Subtotal:</span>
-                  <p className="font-medium">{formatCurrency(displayOrder.subtotal)}</p>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm text-gray-500">Delivery Fee:</span>
-                  <p className="font-medium">{formatCurrency(displayOrder.delivery_fee || 0)}</p>
-                </div>
-                <Separator />
-                <div className="flex justify-between">
-                  <span className="text-sm text-gray-500">Total Amount:</span>
-                  <p className="text-xl font-bold text-green-600">{formatCurrency(displayOrder.total_amount)}</p>
-                </div>
-                {displayOrder.status === 'delivered' && (
-                  <>
-                    <Separator />
-                    <div className="flex justify-between">
-                      <span className="text-sm text-gray-500">Actual Profit:</span>
-                      <p className="font-bold text-blue-600">{formatCurrency(calculateActualProfit(displayOrder.items || []))}</p>
+                  {displayOrder.customer_email && (
+                    <div>
+                      <label className="text-sm font-medium text-gray-600">Email</label>
+                      <p className="text-gray-900 flex items-center gap-1">
+                        <Mail className="h-4 w-4" />
+                        {displayOrder.customer_email}
+                      </p>
                     </div>
-                    <p className="text-xs text-gray-400 text-center">*Based on actual cost vs retail price</p>
-                  </>
-                )}
-                <div className="pt-2">
-                  <span className="text-sm text-gray-500">Payment Status:</span>
-                  <Badge className={`ml-2 ${displayOrder.payment_status === 'paid' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
-                    {displayOrder.payment_status || 'pending'}
-                  </Badge>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Status Update */}
-          <Card className="shadow-lg border-0 bg-white rounded-2xl overflow-hidden">
-            <CardHeader className="bg-gradient-to-r from-purple-50 to-pink-50 p-6">
-              <CardTitle className="flex items-center gap-3 text-lg font-semibold text-gray-800">
-                <div className="w-8 h-8 bg-purple-500 rounded-lg flex items-center justify-center">
-                  <CheckCircle className="h-4 w-4 text-white" />
-                </div>
-                Update Order Status
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="p-6">
-              <div className="flex gap-4 items-center">
-                <Select value={newStatus} onValueChange={setNewStatus}>
-                  <SelectTrigger className="w-56 h-12 border-2 border-gray-200 rounded-xl shadow-sm hover:border-purple-300 transition-colors">
-                    <SelectValue placeholder="Select new status" />
-                  </SelectTrigger>
-                  <SelectContent className="rounded-xl shadow-lg border-0">
-                    <SelectItem value="pending" className="rounded-lg">Pending</SelectItem>
-                    <SelectItem value="confirmed" className="rounded-lg">Confirmed</SelectItem>
-                    <SelectItem value="processing" className="rounded-lg">Processing</SelectItem>
-                    <SelectItem value="out_for_delivery" className="rounded-lg">Out for Delivery</SelectItem>
-                    <SelectItem value="delivered" className="rounded-lg">Delivered</SelectItem>
-                    <SelectItem value="cancelled" className="rounded-lg">Cancelled</SelectItem>
-                  </SelectContent>
-                </Select>
-
-                <Button
-                  onClick={handleStatusUpdate}
-                  disabled={newStatus === displayOrder.status || isLoading}
-                  className="h-12 px-6 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white font-semibold rounded-xl shadow-lg hover:shadow-xl transition-all duration-200"
-                >
-                  {isLoading ? (
-                    <div className="flex items-center gap-2">
-                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                      Updating...
-                    </div>
-                  ) : (
-                    'Update Status'
                   )}
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Order Items */}
-          <Card className="shadow-lg border-0 bg-white rounded-2xl overflow-hidden">
-            <CardHeader className="bg-gradient-to-r from-orange-50 to-amber-50 p-6">
-              <CardTitle className="flex items-center gap-3 text-lg font-semibold text-gray-800">
-                <div className="w-8 h-8 bg-orange-500 rounded-lg flex items-center justify-center">
-                  <Package className="h-4 w-4 text-white" />
+                  <div className="md:col-span-2">
+                    <label className="text-sm font-medium text-gray-600">Delivery Address</label>
+                    <p className="text-gray-900 flex items-start gap-1">
+                      <MapPin className="h-4 w-4 mt-0.5" />
+                      {displayOrder.delivery_address}
+                    </p>
+          </div>
                 </div>
-                Order Items ({displayOrder.items?.length || 0})
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="p-6">
-              <div className="space-y-4">
-                {displayOrder.items && displayOrder.items.length > 0 ? (
-                  displayOrder.items.map((item) => {
-                  // Parse custom_details if it's a string
+              </div>
+
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                  <Package className="h-5 w-5" />
+                  Order Items
+                </h3>
+                <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+                  <table className="w-full">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Item</th>
+                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Qty</th>
+                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Rate</th>
+                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Amount</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200">
+                      {(displayOrder.items || []).map((item, index) => {
                   let customDetails = null;
                   if (item.custom_details) {
                     try {
+                      // MySQL JSON fields are returned as objects, not strings
                       customDetails = typeof item.custom_details === 'string'
                         ? JSON.parse(item.custom_details)
                         : item.custom_details;
-
-
                     } catch (e) {
                       console.error('Error parsing custom_details:', e);
+                      customDetails = item.custom_details; // Fallback to raw data
                     }
                   }
 
                   return (
-                    <div key={item.id} className="border border-orange-100 rounded-xl overflow-hidden hover:shadow-md transition-shadow">
-                      {/* Main Item */}
-                      <div className="flex items-center justify-between p-6 bg-gradient-to-r from-gray-50 to-orange-50">
-                        <div className="flex items-center gap-4">
-                          <div className="w-14 h-14 bg-gradient-to-br from-orange-400 to-amber-500 rounded-xl flex items-center justify-center shadow-lg relative overflow-hidden">
-                            {item.product_image ? (
-                              <img
-                                src={item.product_image}
-                                alt={item.product_name}
-                                className="w-full h-full object-cover"
-                                onError={(e) => {
-                                  e.target.style.display = 'none';
-                                  e.target.parentElement.querySelector('.fallback-icon').style.display = 'block';
-                                }}
-                              />
-                            ) : null}
-                            <Package className="h-6 w-6 text-white fallback-icon" style={{ display: item.product_image ? 'none' : 'block' }} />
-                          </div>
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2">
-                              <h4 className="font-medium text-gray-900">{item.product_name}</h4>
-                              {item.source === 'mix-calculator' && item.mix_number && (
-                                <Badge variant="outline" className="text-xs bg-purple-50 text-purple-700 border-purple-200">
-                                  Mix #{item.mix_number}
-                                </Badge>
+                          <React.Fragment key={index}>
+                            <tr>
+                              <td className="px-4 py-3">
+                                <div>
+                                  <div className="font-medium text-gray-900">{item.product_name}</div>
+                                  {item.source === 'mix-calculator' && (
+                                    <div className="text-xs text-blue-600">Mix Item</div>
                               )}
                               {item.source === 'custom' && (
-                                <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200">
-                                  Custom
-                                </Badge>
+                                    <div className="text-xs text-purple-600">Custom Item</div>
                               )}
                             </div>
-                            <p className="text-sm text-gray-500 mt-1">
-                              {formatQuantity(item.quantity)} {item.unit} × {formatCurrency(item.unit_price)}
-                            </p>
+                              </td>
+                              <td className="px-4 py-3 text-right text-sm text-gray-900">
+                                {formatQuantity(item.quantity)} {item.unit}
+                              </td>
+                              <td className="px-4 py-3 text-right text-sm text-gray-900">
+                                {formatCurrency(item.unit_price)}
+                              </td>
+                              <td className="px-4 py-3 text-right text-sm font-medium text-gray-900">
+                                {formatCurrency(item.total_price)}
+                              </td>
+                            </tr>
+
+                            {item.source === 'mix-calculator' && customDetails?.mixItems && (
+                              <tr>
+                                <td colSpan="4" className="px-4 py-0">
+                                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 my-2">
+                                    <div className="flex items-center justify-between mb-3">
+                                      <h6 className="text-sm font-semibold text-blue-800 flex items-center gap-2">
+                                        <Package className="h-4 w-4" />
+                                        Mix Components to Prepare
+                                      </h6>
+                                      <div className="text-xs text-blue-600 bg-blue-100 px-2 py-1 rounded">
+                                        {customDetails.mixItems.length} items
                           </div>
+                                    </div>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                      {customDetails.mixItems.map((mixItem, mixIndex) => (
+                                        <div key={mixIndex} className="bg-white border border-blue-200 rounded-lg p-3">
+                                          <div className="flex items-center justify-between">
+                                            <div>
+                                              <div className="font-medium text-gray-900 text-sm">{mixItem.name}</div>
+                                              <div className="text-xs text-gray-500">@ {formatCurrency(mixItem.price || 0)}/kg</div>
                         </div>
                         <div className="text-right">
-                          <p className="font-bold text-blue-600 text-lg">{formatCurrency(item.total_price)}</p>
-                          {item.average_cost_price && parseFloat(item.average_cost_price) > 0 && (
-                            <div className="text-xs text-gray-500 mt-1">
-                              <div>Cost: {formatCurrency(parseFloat(item.average_cost_price) * parseFloat(item.quantity))}</div>
-                              <div className="text-green-600 font-medium">
-                                Profit: {formatCurrency((parseFloat(item.unit_price) - parseFloat(item.average_cost_price)) * parseFloat(item.quantity))}
+                                              <div className="font-bold text-blue-600">
+                                                {formatQuantity(mixItem.calculatedQuantity || mixItem.quantity || 0)} kg
+                              </div>
+                                              <div className="text-xs text-gray-500">= {formatCurrency(mixItem.actualCost || mixItem.allocatedBudget || 0)}</div>
                               </div>
                             </div>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Mix Items Details - Packing Information */}
-                      {item.source === 'mix-calculator' && (
-                        customDetails?.mixItems ? (
-                        <div className="bg-orange-50 border-t border-orange-200">
-                          <div className="p-4">
-                            <div className="flex items-center justify-between mb-3">
-                              <h5 className="text-sm font-semibold text-orange-800 flex items-center gap-2">
-                                <Package className="h-4 w-4" />
-                                Items to Pack for Mix #{customDetails.mixNumber || item.mix_number}
-                              </h5>
-                              <div className="text-xs text-orange-600 bg-orange-100 px-2 py-1 rounded">
-                                {customDetails.mixItems.length} components
-                              </div>
-                            </div>
-
-                            <div className="space-y-2">
-                              {customDetails.mixItems.map((mixItem, index) => {
-                                // Get product image URL if available
-                                let productImage = null;
-                                if (mixItem.product_images && mixItem.product_images.length > 0) {
-                                  const imageUrl = mixItem.product_images[0];
-                                  if (imageUrl.startsWith('http')) {
-                                    productImage = imageUrl;
-                                  } else if (imageUrl.startsWith('/api/')) {
-                                    productImage = `http://localhost:5000${imageUrl}`;
-                                  } else {
-                                    productImage = `http://localhost:5000/api/products/images/${imageUrl}`;
-                                  }
-                                }
-
-                                return (
-                                  <div key={index} className="flex items-center justify-between p-3 bg-white rounded-lg border border-orange-200 shadow-sm">
-                                    <div className="flex items-center gap-3">
-                                      <div className="w-10 h-10 bg-orange-100 rounded-lg flex items-center justify-center overflow-hidden">
-                                        {productImage ? (
-                                          <img
-                                            src={productImage}
-                                            alt={mixItem.name}
-                                            className="w-full h-full object-cover"
-                                            onError={(e) => {
-                                              e.target.style.display = 'none';
-                                              e.target.nextElementSibling.style.display = 'flex';
-                                            }}
-                                          />
-                                        ) : null}
-                                        <div className="w-full h-full flex items-center justify-center" style={{ display: productImage ? 'none' : 'flex' }}>
-                                          <span className="text-sm font-medium text-orange-700">
-                                            {mixItem.name?.charAt(0) || 'M'}
-                                          </span>
                                         </div>
-                                      </div>
-                                      <div>
-                                        <h6 className="font-semibold text-gray-900">{mixItem.name}</h6>
-                                        <p className="text-sm text-gray-600">
-                                          Category: {mixItem.category_name || 'Unknown'}
-                                          {mixItem.sub_category && ` • ${mixItem.sub_category}`}
-                                        </p>
-                                      </div>
+                                      ))}
                                     </div>
-                                    <div className="text-right">
-                                      <div className="text-lg font-bold text-orange-600">
-                                        {formatQuantity(mixItem.calculatedQuantity || mixItem.quantity || 0)} {mixItem.unit || 'kg'}
+                                    <div className="mt-3 pt-3 border-t border-blue-200">
+                                      <div className="flex justify-between text-sm">
+                                        <span className="text-blue-700 font-medium">Total Mix Weight:</span>
+                                        <span className="text-blue-800 font-bold">{customDetails.totalWeight || item.quantity} kg</span>
                                       </div>
-                                      <div className="text-sm text-gray-500">
-                                        @ {formatCurrency(mixItem.price || 0)}/kg
-                                      </div>
-                                      <div className="text-sm font-medium text-gray-700">
-                                        Total: {formatCurrency(mixItem.actualCost || mixItem.price || 0)}
+                                      <div className="flex justify-between text-sm">
+                                        <span className="text-blue-700 font-medium">Total Budget:</span>
+                                        <span className="text-blue-800 font-bold">{formatCurrency(customDetails.totalBudget || item.total_price)}</span>
                                       </div>
                                     </div>
                                   </div>
+                                </td>
+                              </tr>
+                            )}
+                          </React.Fragment>
                                 );
                               })}
+                    </tbody>
+                  </table>
+                </div>
                             </div>
 
-                            <div className="mt-4 pt-3 border-t border-orange-200 bg-orange-100 rounded-lg p-3">
-                              <div className="flex justify-between items-center">
-                                <span className="font-semibold text-orange-800">Mix Total:</span>
-                                <div className="text-right">
-                                  <div className="text-lg font-bold text-orange-800">
-                                    {formatQuantity(customDetails.totalWeight || item.quantity)} kg
+              {displayOrder.notes && (
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900 mb-2 flex items-center gap-2">
+                    <FileText className="h-5 w-5" />
+                    Notes
+                  </h3>
+                  <div className="bg-gray-50 rounded-lg p-4">
+                    <p className="text-gray-700 whitespace-pre-wrap">{displayOrder.notes}</p>
+                  </div>
                                   </div>
-                                  <div className="text-sm text-orange-600">
-                                    Budget: {formatCurrency(customDetails.totalBudget || item.price)}
+              )}
                                   </div>
-                                  {/* Calculate mix profit based on components */}
-                                  {(() => {
-                                    // Define cost lookup for mix components
-                                    const costLookup = {
-                                      'almonds': 900,
-                                      'cashews': 500,
-                                      'mirchi': 250
-                                    };
 
-                                    const totalMixCost = customDetails.mixItems.reduce((total, mixItem) => {
-                                      const quantity = parseFloat(mixItem.calculatedQuantity || mixItem.quantity || 0);
-                                      const costPrice = costLookup[mixItem.name.toLowerCase()] || 0;
-                                      return total + (costPrice * quantity);
-                                    }, 0);
-
-                                    const mixSellingPrice = parseFloat(item.unit_price || 0) * parseFloat(item.quantity || 0);
-                                    const mixProfit = mixSellingPrice - totalMixCost;
-
-                                    return (
-                                      <div className="text-sm text-blue-600 font-medium">
-                                        Mix Profit: {formatCurrency(mixProfit > 0 ? mixProfit : 0)}
+            <div className="space-y-6">
+              <div className="bg-gray-50 rounded-lg p-4">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                  <CreditCard className="h-5 w-5" />
+                  Order Summary
+                </h3>
+                <div className="space-y-3">
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Subtotal</span>
+                    <span className="font-medium">{formatCurrency(displayOrder.subtotal)}</span>
                                       </div>
-                                    );
-                                  })()}
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Delivery Fee</span>
+                    <span className="font-medium">{displayOrder.delivery_fee === 0 ? 'FREE' : formatCurrency(displayOrder.delivery_fee || 0)}</span>
                                 </div>
+                  <div className="border-t border-gray-200 pt-3">
+                    <div className="flex justify-between">
+                      <span className="text-lg font-semibold text-gray-900">Total</span>
+                      <span className="text-lg font-bold text-blue-600">{formatCurrency(displayOrder.total_amount)}</span>
                               </div>
                             </div>
-                          </div>
-                        </div>
-                        ) : (
-                          <div className="bg-yellow-50 border-t border-yellow-200 p-4">
-                            <div className="flex items-center gap-2 text-yellow-800">
-                              <Package className="h-4 w-4" />
-                              <span className="text-sm font-medium">
-                                Mix #{item.mix_number || 'Unknown'} - Mix details not available
+                  <div className="border-t border-gray-200 pt-3 space-y-2">
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Payment Status</span>
+                      <span className={`font-medium ${displayOrder.payment_status === 'paid' ? 'text-green-600' : displayOrder.payment_status === 'partial' ? 'text-yellow-600' : 'text-red-600'}`}>
+                        {displayOrder.payment_status || 'unpaid'}
                               </span>
                             </div>
-                            <p className="text-xs text-yellow-600 mt-1">
-                              Mix total: {formatQuantity(item.quantity)} {item.unit} for {formatCurrency(item.total_price)}
-                            </p>
-                            <p className="text-xs text-yellow-600">
-                              Check the original order or contact customer for specific mix components.
-                            </p>
-                            {customDetails && (
-                              <div className="mt-2 p-2 bg-yellow-100 rounded text-xs">
-                                <strong>Debug info:</strong> {JSON.stringify(customDetails)}
+                    {displayOrder.payment_method && (
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Payment Method</span>
+                        <span className="font-medium capitalize">{displayOrder.payment_method}</span>
                               </div>
                             )}
                           </div>
-                        )
-                      )}
+                </div>
+              </div>
 
-
+              <div className="bg-gray-50 rounded-lg p-4">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">Order Status</h3>
+                <div className="space-y-4">
+                  <div>
+                    <label className="text-sm font-medium text-gray-600">Current Status</label>
+                    <div className="mt-1">
+                      <span className={`inline-flex px-3 py-1 text-sm font-semibold rounded-full ${getStatusColor(displayOrder.status)}`}>
+                        {displayOrder.status.replace('_', ' ')}
+                      </span>
                     </div>
-                  );
-                  })
-                ) : (
-                  <div className="text-center py-8 text-gray-500">
-                    <Package className="mx-auto mb-3 h-12 w-12 text-gray-300" />
-                    <h3 className="text-lg font-medium text-gray-900 mb-2">No items found</h3>
-                    <p className="text-gray-500">This order doesn't have any items yet.</p>
                   </div>
-                )}
+                  <div>
+                    <label className="text-sm font-medium text-gray-600">Update Status</label>
+                    <select
+                      value={newStatus}
+                      onChange={(e) => setNewStatus(e.target.value)}
+                      className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="pending">Pending</option>
+                      <option value="confirmed">Confirmed</option>
+                      <option value="processing">Processing</option>
+                      <option value="out_for_delivery">Out for Delivery</option>
+                      <option value="delivered">Delivered</option>
+                      <option value="cancelled">Cancelled</option>
+                    </select>
+                  </div>
+                  {newStatus !== displayOrder.status && newStatus !== 'delivered' && (
+                    <button
+                      onClick={handleStatusUpdate}
+                      disabled={isLoading}
+                      className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isLoading ? 'Updating...' : 'Update Status'}
+                    </button>
+                  )}
+                  {newStatus === 'delivered' && displayOrder.status !== 'delivered' && (
+                    <button
+                      onClick={handleStatusUpdate}
+                      disabled={isLoading}
+                      className="w-full px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isLoading ? 'Processing...' : 'Mark as Delivered'}
+                    </button>
+                  )}
+                </div>
               </div>
 
-              <Separator className="my-4" />
-
-              {/* Totals */}
-              <div className="space-y-2">
+              <div className="bg-gray-50 rounded-lg p-4">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                  <Calendar className="h-5 w-5" />
+                  Order Timeline
+                </h3>
+                <div className="space-y-3 text-sm">
                 <div className="flex justify-between">
-                  <span>Subtotal:</span>
-                  <span>{formatCurrency(displayOrder.subtotal)}</span>
+                    <span className="text-gray-600">Created</span>
+                    <span className="text-gray-900">{formatDate(displayOrder.created_at)}</span>
                 </div>
+                  {displayOrder.approved_at && (
                 <div className="flex justify-between">
-                  <span>Delivery Fee:</span>
-                  <span>{formatCurrency(displayOrder.delivery_fee)}</span>
+                      <span className="text-gray-600">Approved</span>
+                      <span className="text-gray-900">{formatDate(displayOrder.approved_at)}</span>
                 </div>
-                <Separator />
-                <div className="flex justify-between font-bold text-lg">
-                  <span>Total:</span>
-                  <span className="text-blue-600">{formatCurrency(displayOrder.total_amount)}</span>
-                </div>
-                {displayOrder.status === 'delivered' && (
-                  <>
-                    <Separator />
-                    <div className="flex justify-between font-medium text-green-600">
-                      <span>Actual Profit:</span>
-                      <span>{formatCurrency(calculateActualProfit(displayOrder.items || []))}</span>
+                  )}
+                  {displayOrder.delivered_at && (
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Delivered</span>
+                      <span className="text-gray-900">{formatDate(displayOrder.delivered_at)}</span>
                     </div>
-                  </>
                 )}
+                </div>
               </div>
-            </CardContent>
-          </Card>
-
-          {/* Notes */}
-          {displayOrder.notes && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <MessageSquare className="h-4 w-4" />
-                  Notes
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm whitespace-pre-wrap">{displayOrder.notes}</p>
-              </CardContent>
-            </Card>
-          )}
+            </div>
           </div>
         </div>
+
       </DialogContent>
 
       {/* Payment Confirmation Dialog */}
@@ -903,6 +754,37 @@ export default function OrderDetailsModal({ order, isOpen, onClose, onRefresh })
         selectedBill={paymentCollectionDialog.selectedBill}
         isLoading={isPaymentLoading}
       />
+
+      {/* Batch Allocation Dialog */}
+      {order && (
+        <BatchAllocationDialog
+          isOpen={allocationDialogOpen}
+          order={displayOrder}
+          onClose={async (saved) => {
+            setAllocationDialogOpen(false);
+            if (saved) {
+              // After saving allocations, set status to processing
+              try {
+                const response = await fetch(`http://localhost:5000/api/orders/${displayOrder.id}/status`, {
+                  method: 'PUT',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ status: 'processing', changed_by: 'Admin', notes: 'Processing after batch allocation' })
+                });
+                const result = await response.json();
+                if (result.success) {
+                  toast({ title: 'Status Updated', description: 'Order moved to Processing', type: 'success' });
+                  if (onRefresh) onRefresh();
+                } else {
+                  toast({ title: 'Error', description: result.message || 'Failed to update status', type: 'error' });
+                }
+              } catch (e) {
+                console.error(e);
+                toast({ title: 'Error', description: 'Failed to update status to Processing', type: 'error' });
+              }
+            }
+          }}
+        />
+      )}
     </Dialog>
   );
 }

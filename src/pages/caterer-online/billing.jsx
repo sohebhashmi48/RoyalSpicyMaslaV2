@@ -34,6 +34,12 @@ function BillingView({
     return `₹${amount.toFixed(2)}`;
   };
 
+  // Format quantity for display
+  const formatQuantity = (qty) => {
+    const numQty = parseFloat(qty);
+    return isNaN(numQty) ? '0.000' : numQty.toFixed(3);
+  };
+
   // Get payment amount based on selected amount option
   const getPaymentAmount = () => {
     switch (paymentAmount) {
@@ -84,7 +90,19 @@ function BillingView({
       const itemTotal = item.originalEnteredAmount || (item.price * item.quantity);
       message += `   Total: ₹${itemTotal.toFixed(2)}\n`;
 
-      if (item.isMix) message += `   🔄 *Mix Item*\n`;
+      // Handle mix items specially - show detailed components
+      if (item.source === 'mix-calculator' && item.custom_details && item.custom_details.mixItems) {
+        message += `   🌶️ *Mix Components:*\n`;
+        item.custom_details.mixItems.forEach((mixItem, mixIndex) => {
+          message += `      ${String.fromCharCode(97 + mixIndex)}. ${mixItem.name}\n`;
+          message += `         Qty: ${formatQuantity(mixItem.calculatedQuantity || mixItem.quantity || 0)} ${mixItem.unit || 'kg'}\n`;
+          message += `         @ ₹${mixItem.price || 0}/${mixItem.unit || 'kg'}\n`;
+        });
+        message += `   📊 *Mix Total: ${formatQuantity(item.custom_details.totalWeight || item.quantity)} kg*\n`;
+      } else if (item.isMix) {
+        message += `   🔄 *Mix Item*\n`;
+      }
+      
       if (item.isCustom) message += `   ⚠️ *Custom Order*\n`;
       message += `\n`;
     });
@@ -210,6 +228,35 @@ function BillingView({
 
       console.log('✅ [BILLING VIEW] Order created successfully (no bill yet):', result);
       setOrderResponse(result);
+
+      // If an advance was paid and a receipt image was provided, record the payment with receipt
+      if (getPaymentAmount() > 0 && receiptImage) {
+        try {
+          setIsUploadingReceipt(true);
+          const formData = new FormData();
+          formData.append('order_id', result.data.id);
+          formData.append('amount', getPaymentAmount());
+          formData.append('paymentMethod', paymentMethod);
+          formData.append('referenceNumber', `ADV-${result.data.order_number}`);
+          formData.append('notes', `Advance payment for order ${result.data.order_number}`);
+          formData.append('receipt_image', receiptImage);
+
+          const payRes = await fetch('http://localhost:5000/api/caterer-orders/payments', {
+            method: 'POST',
+            body: formData
+          });
+          const payJson = await payRes.json();
+          if (!payJson.success) {
+            console.error('❌ [BILLING VIEW] Failed to upload receipt/payment:', payJson);
+            setSubmitError('Order created but failed to upload receipt. You can upload it later from the bill.');
+          }
+        } catch (err) {
+          console.error('❌ [BILLING VIEW] Error uploading receipt/payment:', err);
+          setSubmitError('Order created but failed to upload receipt. You can upload it later from the bill.');
+        } finally {
+          setIsUploadingReceipt(false);
+        }
+      }
 
       // Generate WhatsApp message and send to caterer
       const whatsappMessage = generateCatererWhatsAppMessage();
@@ -436,6 +483,36 @@ function BillingView({
                 </div>
               </div>
 
+              {/* Receipt Upload (optional) */}
+              <div className="mb-6">
+                <label className="block text-sm font-medium text-gray-700 mb-2">Upload Receipt (optional)</label>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => {
+                    const file = e.target.files && e.target.files[0];
+                    if (!file) { setReceiptImage(null); return; }
+                    if (!file.type.startsWith('image/')) {
+                      setSubmitError('Please upload a valid image file');
+                      return;
+                    }
+                    if (file.size > 5 * 1024 * 1024) {
+                      setSubmitError('Receipt image must be less than 5MB');
+                      return;
+                    }
+                    setSubmitError('');
+                    setReceiptImage(file);
+                  }}
+                  className="block w-full text-sm text-gray-700 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-orange-50 file:text-orange-700 hover:file:bg-orange-100"
+                />
+                {receiptImage && (
+                  <p className="mt-2 text-xs text-gray-500">Selected: {receiptImage.name}</p>
+                )}
+                {getPaymentAmount() === 0 && (
+                  <p className="mt-1 text-xs text-gray-500">Receipt will be attached to the advance payment. Currently no advance selected.</p>
+                )}
+              </div>
+
               {/* Updated Payment Summary */}
               <div className="mb-6 p-4 bg-gray-50 rounded-lg">
                 <h4 className="font-medium text-gray-900 mb-3">Payment Summary</h4>
@@ -475,11 +552,11 @@ function BillingView({
               {/* Submit Button */}
               <button
                 type="submit"
-                disabled={cart.length === 0 || billingStatus === 'processing'}
+                disabled={cart.length === 0 || billingStatus === 'processing' || isUploadingReceipt}
                 className="w-full py-4 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-all duration-300 font-semibold text-lg flex items-center justify-center gap-2"
               >
                 <Phone className="h-5 w-5" />
-                {billingStatus === 'processing' ? 'Processing...' : 'Place Order & Send to Caterer'}
+                {billingStatus === 'processing' || isUploadingReceipt ? 'Processing...' : 'Place Order & Send to Caterer'}
               </button>
             </form>
           </div>

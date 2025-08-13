@@ -15,10 +15,12 @@ import {
 } from 'lucide-react';
 
 import OrderDetailsModal from '../../components/orders/order-details-modal';
+import BatchAllocationDialog from '../../components/orders/BatchAllocationDialog';
 import OrderConfirmationDialog from '../../components/orders/order-confirmation-dialog';
 import PaymentConfirmationDialog from '../../components/orders/PaymentConfirmationDialog';
 import PaymentCollectionDialog from './customerhistory/customers-detailed-page/PaymentCollectionDialog';
 import { useToast } from '../../contexts/ToastContext';
+
 
 // Utility functions
 const formatCurrency = (amount) => {
@@ -204,6 +206,7 @@ export default function OrdersPage() {
   const [confirmationDialog, setConfirmationDialog] = useState({ isOpen: false, order: null, action: 'approve' });
   const [isConfirmationLoading, setIsConfirmationLoading] = useState(false);
   const [actionInProgress, setActionInProgress] = useState({});
+  const [allocationDialog, setAllocationDialog] = useState({ isOpen: false, order: null });
 
   // Payment dialog states
   const [paymentConfirmDialog, setPaymentConfirmDialog] = useState({
@@ -262,7 +265,6 @@ export default function OrdersPage() {
 
       const response = await fetch(`http://localhost:5000/api/orders?${params}`);
       const result = await response.json();
-
       if (result.success) {
         setOrders(result.data);
       } else {
@@ -461,7 +463,11 @@ export default function OrdersPage() {
       action: action,
       timestamp: new Date().toISOString()
     });
-    // Use regular confirmation dialog for all actions
+    // Intercept process to force allocation dialog
+    if (action === 'process') {
+      setAllocationDialog({ isOpen: true, order });
+      return;
+    }
     setConfirmationDialog({ isOpen: true, order, action });
   };
 
@@ -512,11 +518,20 @@ export default function OrdersPage() {
           newStatus = action;
       }
 
-      console.log('🔥 [FRONTEND] Making API call to update order status:', {
-        orderId: order.id,
-        newStatus: newStatus,
-        action: action
-      });
+      // If delivering, first deduct inventory based on saved allocations
+      if (newStatus === 'delivered') {
+        const deductRes = await fetch(`http://localhost:5000/api/orders/${order.id}/deliver-with-deduction`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ markDelivered: false })
+        });
+        const deductData = await deductRes.json();
+        if (!deductData.success) {
+          throw new Error(deductData.message || 'Failed to deduct inventory. Ensure batches are allocated.');
+        }
+      }
+
+      console.log('🔥 [FRONTEND] Making API call to update order status:', { orderId: order.id, newStatus, action });
 
       const response = await fetch(`http://localhost:5000/api/orders/${order.id}/status`, {
         method: 'PUT',
@@ -850,6 +865,40 @@ export default function OrdersPage() {
           order={confirmationDialog.order}
           action={confirmationDialog.action}
           isLoading={isConfirmationLoading}
+        />
+      )}
+
+      {/* Batch Allocation Dialog */}
+      {allocationDialog.order && (
+        <BatchAllocationDialog
+          isOpen={allocationDialog.isOpen}
+          order={allocationDialog.order}
+          onClose={async (saved) => {
+            setAllocationDialog({ isOpen: false, order: null });
+            if (saved) {
+              // After saving allocations, set status to processing
+              try {
+                const response = await fetch(`http://localhost:5000/api/orders/${allocationDialog.order.id}/status`, {
+                  method: 'PUT',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ status: 'processing', changed_by: 'Admin', notes: 'Processing after batch allocation' })
+                });
+                const result = await response.json();
+                if (result.success) {
+                  showSuccess('Order moved to Processing');
+                  await Promise.all([
+                    fetchOrders(selectedDate),
+                    fetchOrderStats(selectedDate)
+                  ]);
+                } else {
+                  showError(result.message || 'Failed to update status');
+                }
+              } catch (e) {
+                console.error(e);
+                showError('Failed to update status to Processing');
+              }
+            }
+          }}
         />
       )}
 

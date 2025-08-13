@@ -179,7 +179,7 @@ const ProductCard = ({ product, onAddToCart, cartItem, onQuantityChange, viewMod
       className={`
         product-card-hover bg-white rounded-xl shadow-md border border-gray-100 p-3 
         flex flex-col transition-all duration-500 relative 
-        group stagger-${Math.min((index % 5) + 1, 5)} 
+        group
         ${showCustomInputs ? 'z-10 shadow-lg' : ''}
       `}
       style={{

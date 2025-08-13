@@ -291,10 +291,27 @@ function CustomerOnlinePage() {
 
   // Handle add to cart
   const handleAddToCart = (product) => {
+    console.log('🔥 [CUSTOMER ONLINE DEBUG] Adding to cart:', {
+      product: {
+        id: product.id,
+        name: product.name,
+        isCustom: product.isCustom,
+        isMix: product.isMix,
+        price: product.price,
+        quantity: product.quantity,
+        unit: product.unit,
+        custom_details: product.custom_details,
+        mixDetails: product.mixDetails,
+        mixItems: product.mixItems,
+        totalWeight: product.totalWeight,
+        mixNumber: product.mixNumber
+      }
+    });
+
     setCart(prevCart => {
       if (product.isCustom || product.isMix) {
         // For custom orders and mix items, always add as new item (don't combine)
-        return [...prevCart, {
+        const newCartItem = {
           ...product,
           id: product.id,
           quantity: product.quantity,
@@ -302,26 +319,33 @@ function CustomerOnlinePage() {
           isCustom: product.isCustom || false,
           isMix: product.isMix || false,
           image: getImageUrlForCartItem(product)
-        }];
+        };
+        
+        console.log('🔥 [CUSTOMER ONLINE DEBUG] Adding custom/mix item:', newCartItem);
+        return [...prevCart, newCartItem];
       } else {
         // For standard orders, check if item already exists
         const existing = prevCart.find(item => item.id === product.id && !item.isCustom && !item.isMix);
         if (existing) {
           // Update existing standard item
-          return prevCart.map(item =>
+          const updatedCart = prevCart.map(item =>
             item.id === product.id && !item.isCustom && !item.isMix
               ? { ...item, quantity: item.quantity + (product.quantity || 1) }
               : item
           );
+          console.log('🔥 [CUSTOMER ONLINE DEBUG] Updated existing standard item');
+          return updatedCart;
         } else {
           // Add new standard item
-          return [...prevCart, {
+          const newCartItem = {
             ...product,
             quantity: product.quantity || 1,
             isCustom: false,
             isMix: false,
             image: getImageUrlForCartItem(product)
-          }];
+          };
+          console.log('🔥 [CUSTOMER ONLINE DEBUG] Added new standard item:', newCartItem);
+          return [...prevCart, newCartItem];
         }
       }
     });

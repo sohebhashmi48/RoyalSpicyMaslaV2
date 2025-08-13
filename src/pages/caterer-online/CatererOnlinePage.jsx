@@ -539,7 +539,7 @@ function CatererOnlinePage() {
                   )}
                 </div>
               ) : (
-                <div className={`${viewMode === 'grid' ? 'responsive-grid' : 'grid grid-cols-1 gap-4'}`}>
+                <div className={`${viewMode === 'grid' ? 'responsive-grid' : 'grid grid-cols-1 gap-2'}`}>
                   {sortedProducts.map((product, index) => (
                     <ProductCard
                       key={product.id}

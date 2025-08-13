@@ -1,5 +1,13 @@
 const pool = require('./db.cjs');
 
+// Formats a Date to local YYYY-MM-DD to avoid timezone shifts from toISOString()
+const formatDateLocal = (date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 
 // Helper function to create bills for delivered orders that don't have bills yet
 const createBillsForDeliveredOrders = async (connection) => {
@@ -131,7 +139,8 @@ const createBillsForDeliveredOrders = async (connection) => {
 
 
       // Create bill with proper payment status
-      await connection.execute(`
+      const initialBillStatus = remainingAmount <= 0 ? 'paid' : (orderPaymentAmount > 0 ? 'partial' : 'pending');
+      const [billResult] = await connection.execute(`
         INSERT INTO caterer_bills (
           caterer_id, caterer_order_id, bill_number, bill_date,
           subtotal, total_amount, paid_amount, pending_amount, status
@@ -144,9 +153,28 @@ const createBillsForDeliveredOrders = async (connection) => {
         totalAmount,
         orderPaymentAmount,
         remainingAmount,
-        remainingAmount > 0 ? 'pending' : 'paid'
+        initialBillStatus
       ]);
 
+      const billId = billResult.insertId;
+
+      // Record initial advance payment in payment history if any
+      if (orderPaymentAmount > 0) {
+        await connection.execute(`
+          INSERT INTO caterer_payments (
+            caterer_id, bill_id, amount, payment_method, payment_date,
+            reference_number, notes
+          ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        `, [
+          catererId,
+          billId,
+          orderPaymentAmount,
+          order.payment_method || 'cash',
+          order.created_at || new Date(),
+          `ADV-${order.order_number}`,
+          `Advance payment for order ${order.order_number}`
+        ]);
+      }
 
       console.log(`✅ Created bill ${billNumber} for order ${order.order_number} with amount ₹${totalAmount}, paid: ₹${orderPaymentAmount}, remaining: ₹${remainingAmount}`);
     }
@@ -228,6 +256,8 @@ const getCatererHistory = async (req, res) => {
       search = '',
       min_amount = '',
       max_amount = '',
+      date_filter = 'all', // all, this_week, this_month, last_15_days, 6_months
+      selected_date = '', // specific date in YYYY-MM-DD format
       page = 1,
       limit = 50
     } = req.query;
@@ -293,6 +323,48 @@ const getCatererHistory = async (req, res) => {
       queryParams.push(parseFloat(max_amount));
     }
 
+    // Date filters
+    if (selected_date) {
+      // Filter by specific date
+      whereConditions.push('DATE(cb.bill_date) = ?');
+      queryParams.push(selected_date);
+    } else if (date_filter && date_filter !== 'all') {
+      // Filter by preset date ranges
+      const today = new Date();
+      const startDate = new Date();
+      
+      switch (date_filter) {
+        case 'this_week':
+          // Get start of week (Monday)
+          const dayOfWeek = today.getDay();
+          const diff = today.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
+          startDate.setDate(diff);
+          startDate.setHours(0, 0, 0, 0);
+          break;
+          
+        case 'this_month':
+          startDate.setDate(1);
+          startDate.setHours(0, 0, 0, 0);
+          break;
+          
+        case 'last_15_days':
+          startDate.setDate(today.getDate() - 14);
+          startDate.setHours(0, 0, 0, 0);
+          break;
+          
+        case '6_months':
+          startDate.setMonth(today.getMonth() - 5);
+          startDate.setDate(1);
+          startDate.setHours(0, 0, 0, 0);
+          break;
+      }
+      
+      if (date_filter !== 'all') {
+        whereConditions.push('cb.bill_date >= ?');
+        queryParams.push(formatDateLocal(startDate));
+      }
+    }
+
 
     const whereClause = whereConditions.length > 0
       ? `WHERE ${whereConditions.join(' AND ')}`
@@ -328,58 +400,31 @@ const getCatererHistory = async (req, res) => {
     let bills;
 
 
-    // Check if we have actual parameters (not just WHERE conditions without parameters)
-    if (queryParams.length === 0) {
-      // No parameters needed - use string interpolation for everything
-      billsQuery = `
-        SELECT
-          cb.*,
-          co.order_number,
-          co.delivered_at,
-          co.created_at as order_created_at,
-          c.caterer_name,
-          c.contact_person,
-          c.phone_number as caterer_phone,
-          c.email as caterer_email,
-          c.address as caterer_address,
-          c.gst_number
-        FROM caterer_bills cb
-        LEFT JOIN caterer_orders co ON cb.caterer_order_id = co.id
-        LEFT JOIN caterers c ON cb.caterer_id = c.id
-        ${whereClause}
-        ORDER BY cb.created_at DESC, cb.bill_date DESC
-        LIMIT ${limitNum} OFFSET ${offset}
-      `;
-      
-      console.log('📊 Final query (no params):', billsQuery);
-      [bills] = await connection.query(billsQuery);
-    } else {
-      // Has actual parameters - use prepared statements
-      billsQuery = `
-        SELECT
-          cb.*,
-          co.order_number,
-          co.delivered_at,
-          co.created_at as order_created_at,
-          c.caterer_name,
-          c.contact_person,
-          c.phone_number as caterer_phone,
-          c.email as caterer_email,
-          c.address as caterer_address,
-          c.gst_number
-        FROM caterer_bills cb
-        LEFT JOIN caterer_orders co ON cb.caterer_order_id = co.id
-        LEFT JOIN caterers c ON cb.caterer_id = c.id
-        ${whereClause}
-        ORDER BY cb.created_at DESC, cb.bill_date DESC
-        LIMIT ? OFFSET ?
-      `;
-      
-      const finalParams = [...queryParams, limitNum, offset];
-      console.log('📊 Final query (with params):', billsQuery);
-      console.log('📊 Final params:', finalParams);
-      [bills] = await connection.execute(billsQuery, finalParams);
-    }
+    // Always use prepared statements for security
+    billsQuery = `
+      SELECT
+        cb.*,
+        co.order_number,
+        co.delivered_at,
+        co.created_at as order_created_at,
+        c.caterer_name,
+        c.contact_person,
+        c.phone_number as caterer_phone,
+        c.email as caterer_email,
+        c.address as caterer_address,
+        c.gst_number
+      FROM caterer_bills cb
+      LEFT JOIN caterer_orders co ON cb.caterer_order_id = co.id
+      LEFT JOIN caterers c ON cb.caterer_id = c.id
+      ${whereClause}
+      ORDER BY cb.created_at DESC, cb.bill_date DESC
+      LIMIT ${limitNum} OFFSET ${offset}
+    `;
+    
+    const finalParams = [...queryParams];
+    console.log('📊 Final query:', billsQuery);
+    console.log('📊 Final params:', finalParams);
+    [bills] = await connection.execute(billsQuery, finalParams);
 
 
     console.log('📊 Raw bills result:', bills.length);
@@ -518,8 +563,62 @@ const getCatererHistory = async (req, res) => {
 // Get caterer history statistics
 const getCatererHistoryStats = async (req, res) => {
   try {
+    const {
+      date_filter = 'all', // all, this_week, this_month, last_15_days, 6_months
+      selected_date = '' // specific date in YYYY-MM-DD format
+    } = req.query;
+
     const connection = await pool.getConnection();
 
+    // Build where conditions for stats
+    let whereConditions = [];
+    let queryParams = [];
+
+    // Date filters for stats
+    if (selected_date) {
+      // Filter by specific date
+      whereConditions.push('DATE(cb.bill_date) = ?');
+      queryParams.push(selected_date);
+    } else if (date_filter && date_filter !== 'all') {
+      // Filter by preset date ranges
+      const today = new Date();
+      const startDate = new Date();
+      
+      switch (date_filter) {
+        case 'this_week':
+          // Get start of week (Monday)
+          const dayOfWeek = today.getDay();
+          const diff = today.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
+          startDate.setDate(diff);
+          startDate.setHours(0, 0, 0, 0);
+          break;
+          
+        case 'this_month':
+          startDate.setDate(1);
+          startDate.setHours(0, 0, 0, 0);
+          break;
+          
+        case 'last_15_days':
+          startDate.setDate(today.getDate() - 14);
+          startDate.setHours(0, 0, 0, 0);
+          break;
+          
+        case '6_months':
+          startDate.setMonth(today.getMonth() - 5);
+          startDate.setDate(1);
+          startDate.setHours(0, 0, 0, 0);
+          break;
+      }
+      
+      if (date_filter !== 'all') {
+        whereConditions.push('cb.bill_date >= ?');
+        queryParams.push(formatDateLocal(startDate));
+      }
+    }
+
+    const whereClause = whereConditions.length > 0
+      ? `WHERE ${whereConditions.join(' AND ')}`
+      : '';
 
     // Get overall statistics
     const [stats] = await connection.execute(`
@@ -535,7 +634,8 @@ const getCatererHistoryStats = async (req, res) => {
         COUNT(CASE WHEN cb.status = 'overdue' THEN 1 END) as overdue_bills,
         COUNT(CASE WHEN cb.pending_amount > 0 THEN 1 END) as bills_with_pending_amount
       FROM caterer_bills cb
-    `);
+      ${whereClause}
+    `, queryParams);
 
 
     connection.release();
@@ -710,9 +810,9 @@ const recordCatererPayment = async (req, res) => {
             billNumber,
             order.subtotal || 0,
             totalAmount,
-            advancePayment,
-            remainingAmount,
-            remainingAmount > 0 ? 'pending' : 'paid'
+            0, // do not pre-add advance here; will be recorded via payment record below
+            totalAmount, // full pending; will be reduced by inserted payment
+            'pending'
           ]);
           
           billId = billResult.insertId;

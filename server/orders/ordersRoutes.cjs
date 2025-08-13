@@ -21,6 +21,17 @@ router.get('/:id', getOrderById);
 router.post('/', createOrder);
 router.put('/:id/status', updateOrderStatus);
 
+// Allocation routes
+const {
+  saveAllocations,
+  getAllocations,
+  deductInventoryForDelivery
+} = require('./orderInventoryController.cjs');
+
+router.get('/:id/allocations', getAllocations);
+router.post('/:id/allocations', saveAllocations);
+router.post('/:id/deliver-with-deduction', deductInventoryForDelivery);
+
 // Routes for product costs
 router.get('/costs/products', getProductCosts);
 router.get('/costs/products/:productId', getProductCost);

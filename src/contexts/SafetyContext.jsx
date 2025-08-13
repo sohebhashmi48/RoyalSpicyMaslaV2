@@ -14,6 +14,7 @@ export const SafetyProvider = ({ children }) => {
   // Safety mechanism settings
   const [safetyEnabled, setSafetyEnabled] = useState(true);
   const [safetyPassword, setSafetyPassword] = useState('admin123'); // Default password
+  const [hasFetchedSafety, setHasFetchedSafety] = useState(false);
 
   // Load settings from localStorage on mount
   useEffect(() => {
@@ -28,9 +29,11 @@ export const SafetyProvider = ({ children }) => {
       }
     }
 
-    // Load current safety password from database
-    fetchSafetyPassword();
-  }, []);
+    // Load current safety password from database (only once per session)
+    if (!hasFetchedSafety) {
+      fetchSafetyPassword();
+    }
+  }, [hasFetchedSafety]);
 
   // Save settings to localStorage whenever they change (only enabled status)
   useEffect(() => {
@@ -43,29 +46,28 @@ export const SafetyProvider = ({ children }) => {
   // Fetch current safety password from database
   const fetchSafetyPassword = async () => {
     try {
-      // Get the admin token from localStorage
-      const token = localStorage.getItem('adminToken');
-      if (!token) {
-        console.log('No admin token found, using default password');
-        return;
-      }
+      setHasFetchedSafety(true);
+      let token = localStorage.getItem('adminToken');
+      if (!token) return;
 
-      const response = await fetch('http://localhost:5000/api/admin/safety-password', {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
+      let response = await fetch('http://localhost:5000/api/admin/safety-password', {
+        headers: { 'Authorization': `Bearer ${token}` }
       });
+
+      if (response.status === 403) {
+        token = await refreshAdminToken();
+        if (!token) return;
+        response = await fetch('http://localhost:5000/api/admin/safety-password', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+      }
 
       if (response.ok) {
         const data = await response.json();
-        if (data.success) {
-          setSafetyPassword(data.password);
-        }
-      } else {
-        console.log('Failed to fetch safety password, using default');
+        if (data.success && data.password) setSafetyPassword(data.password);
       }
-    } catch (error) {
-      console.error('Error fetching safety password:', error);
+    } catch (_) {
+      // Silent fail, keep default password
     }
   };
 

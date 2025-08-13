@@ -19,6 +19,12 @@ function OrderSummary({ cart, onBackToCart, onOrderComplete }) {
     return `₹${amount.toFixed(2)}`;
   };
 
+  // Format quantity for display
+  const formatQuantity = (qty) => {
+    const numQty = parseFloat(qty);
+    return isNaN(numQty) ? '0.000' : numQty.toFixed(3);
+  };
+
   // Calculate totals
   const getCartSubtotal = () => {
     return cart.reduce((total, item) => {
@@ -98,6 +104,17 @@ function OrderSummary({ cart, onBackToCart, onOrderComplete }) {
       const itemTotal = (item.isCustom && item.originalEnteredAmount) ? item.originalEnteredAmount : (item.price * item.quantity);
       message += `   Total: ${formatCurrency(itemTotal)}\n`;
 
+      // Handle mix items specially - show detailed components
+      if (item.source === 'mix-calculator' && item.custom_details && item.custom_details.mixItems) {
+        message += `   🌶️ *Mix Components:*\n`;
+        item.custom_details.mixItems.forEach((mixItem, mixIndex) => {
+          message += `      ${String.fromCharCode(97 + mixIndex)}. ${mixItem.name}\n`;
+          message += `         Qty: ${formatQuantity(mixItem.calculatedQuantity || mixItem.quantity || 0)} ${mixItem.unit || 'kg'}\n`;
+          message += `         @ ${formatCurrency(mixItem.price || 0)}/${mixItem.unit || 'kg'}\n`;
+        });
+        message += `   📊 *Mix Total: ${formatQuantity(item.custom_details.totalWeight || item.quantity)} kg*\n`;
+      }
+
       if (item.isCustom) message += `   ⚠️ *Custom Order*\n`;
       message += `\n`;
     });
@@ -128,7 +145,7 @@ function OrderSummary({ cart, onBackToCart, onOrderComplete }) {
     setOrderStatus('processing');
 
     try {
-      // Prepare order data
+      // Prepare order data with proper JSON formatting
       const orderData = {
         customer_name: customerDetails.name,
         customer_phone: customerDetails.phone,
@@ -150,7 +167,7 @@ function OrderSummary({ cart, onBackToCart, onOrderComplete }) {
         },
         body: JSON.stringify(orderData)
       });
-
+      
       const result = await response.json();
 
       if (result.success) {

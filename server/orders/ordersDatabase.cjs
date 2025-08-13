@@ -79,6 +79,28 @@ const initializeOrdersDatabase = async () => {
       )
     `);
 
+    // Create order_inventory_allocations table to store per-batch allocations for delivery deductions
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS order_inventory_allocations (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        order_id INT NOT NULL,
+        order_item_id INT NULL,
+        product_id INT NULL,
+        product_name VARCHAR(255) NOT NULL,
+        batch VARCHAR(100) NOT NULL,
+        quantity DECIMAL(10,3) NOT NULL,
+        unit ENUM('kg', 'gram', 'pound', 'box', 'pack', 'litre') DEFAULT 'kg',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+        FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
+        FOREIGN KEY (order_item_id) REFERENCES order_items(id) ON DELETE SET NULL,
+        FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
+        INDEX idx_order (order_id),
+        INDEX idx_product (product_id),
+        INDEX idx_batch (batch)
+      )
+    `);
+
     // Create product_cost_tracking table for profit calculations
     await connection.execute(`
       CREATE TABLE IF NOT EXISTS product_cost_tracking (

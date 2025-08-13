@@ -137,10 +137,12 @@ const MixCalculatorModal = ({ onClose, products = [], onAddToCart }) => {
       price: Number(totalBudget),
       quantity: 1,
       isMix: true,
-      mixDetails: {
+      source: 'mix-calculator',
+      custom_details: {
+        mixItems: mixCalculation.mixItems,
         totalBudget: Number(totalBudget),
-        items: mixCalculation.mixItems,
-        itemCount: mixCalculation.mixItems.length
+        itemCount: mixCalculation.mixItems.length,
+        totalWeight: mixCalculation.mixItems.reduce((sum, item) => sum + (parseFloat(item.calculatedQuantity) || 0), 0)
       },
       displayName: `Mix ${globalMixCounter - 1} (${mixCalculation.mixItems.length} items mix)`,
       unit: 'mix'

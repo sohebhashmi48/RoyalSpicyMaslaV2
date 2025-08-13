@@ -16,6 +16,7 @@ function getCartTotal(cart) {
   }, 0);
 }
 
+
 function CartView({ cart, onQuantityChange, onBackToProducts, onProceedToCatererSelection, onClearCart }) {
   const [expandedMixes, setExpandedMixes] = useState(new Set());
 
@@ -37,7 +38,8 @@ function CartView({ cart, onQuantityChange, onBackToProducts, onProceedToCaterer
 
   const formatUnitPriceDisplay = (item) => {
     if (item.isMix) {
-      return `Mix of ${item.mixDetails.itemCount} items`;
+      const itemCount = item.custom_details?.itemCount || item.mixDetails?.itemCount || 0;
+      return `Mix of ${itemCount} items`;
     }
     const unit = item.unit || 'kg';
 
@@ -78,7 +80,10 @@ function CartView({ cart, onQuantityChange, onBackToProducts, onProceedToCaterer
   };
 
   const renderMixDetails = (item) => {
-    if (!item.isMix || !item.mixDetails) return null;
+    if (!item.isMix) return null;
+    
+    const mixDetails = item.custom_details || item.mixDetails;
+    if (!mixDetails) return null;
 
     return (
       <div className="mt-3 pt-3 border-t border-gray-100">
@@ -91,17 +96,12 @@ function CartView({ cart, onQuantityChange, onBackToProducts, onProceedToCaterer
           ) : (
             <ChevronDown className="h-4 w-4" />
           )}
-          <span>View mix details ({item.mixDetails.itemCount} items)</span>
+          <span>View mix details ({mixDetails.itemCount} items)</span>
         </button>
 
         {expandedMixes.has(item.id) && (
           <div className="mt-3 bg-gray-50 rounded-lg p-3 space-y-2">
-            <div className="text-xs text-gray-600 mb-2">
-              <strong>Budget:</strong> {formatCurrency(item.mixDetails.totalBudget)} • 
-              <strong className="ml-1">Actual Cost:</strong> {formatCurrency(item.price)}
-            </div>
-            
-            {item.mixDetails.items.map((mixItem, index) => (
+            {mixDetails.mixItems?.map((mixItem, index) => (
               <div key={index} className="flex justify-between items-center text-sm border-b border-gray-200 pb-1 last:border-b-0">
                 <div className="flex-1">
                   <div className="font-medium text-gray-800">{mixItem.name}</div>

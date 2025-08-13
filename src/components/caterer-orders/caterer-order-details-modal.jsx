@@ -57,11 +57,13 @@ function CatererOrderDetailsModal({ order, isOpen, onClose, onRefresh }) {
       const orderInfo = orderDetails || order;
       const paymentInfo = getPaymentInfo(orderInfo);
       // Find actual caterer ID from database
+      console.log("paymentInfo==",paymentInfo);
       const findCatererAndOpenDialog = async () => {
         let actualCatererId = null;
         try {
           const response = await fetch(`http://localhost:5000/api/caterers/find-by-phone/${encodeURIComponent(orderInfo.caterer_phone)}`);
           const result = await response.json();
+          console.log()
           if (result.success && result.data) {
             actualCatererId = result.data.id;
           }
@@ -341,16 +343,16 @@ function CatererOrderDetailsModal({ order, isOpen, onClose, onRefresh }) {
     return `₹${numAmount.toFixed(2)}`;
   };
 
-  // SIMPLIFIED: Get payment status and amounts - using only data from caterer_orders table
   const getPaymentInfo = (orderData) => {
-    // SIMPLIFIED: Use payment_amount from caterer_orders table (this is the advance payment made during order creation)
-    // Plus any additional payments recorded in caterer_payments table (total_paid_amount from JOIN)
     const orderPaymentAmount = Number(orderData.payment_amount || 0);
-    const additionalPayments = Number(orderData.total_paid_amount || 0);
-    
-    // Total paid = order advance payment + any additional payments
-    const totalPaid = orderPaymentAmount + additionalPayments;
+    const paymentsSum = Number(orderData.total_paid_amount || 0);
     const totalAmount = Number(orderData.total_amount || 0);
+
+    // Avoid double counting the advance:
+    // - If there are recorded payments (paymentsSum > 0), they already include the advance (ADV) entry
+    //   so use paymentsSum only.
+    // - Otherwise (no payments recorded yet), fall back to the order's advance amount.
+    const totalPaid = paymentsSum > 0 ? paymentsSum : orderPaymentAmount;
     const remainingBalance = Math.max(0, totalAmount - totalPaid);
 
     let paymentStatus = 'Unpaid';
@@ -390,13 +392,9 @@ function CatererOrderDetailsModal({ order, isOpen, onClose, onRefresh }) {
   const displayOrder = orderDetails || order;
   const paymentInfo = getPaymentInfo(displayOrder);
 
-  // ✅ Debug log to check what's being passed to dialog
-  console.log('🔍 Payment dialog props check:', {
-    isOpen: paymentCollectionDialog.isOpen,
-    onSubmit: typeof handlePaymentSubmit,
-    caterer: paymentCollectionDialog.caterer,
-    bill: paymentCollectionDialog.bill
-  });
+  // Add console.log here to always see payment info when modal is open
+  console.log('Payment Info:', paymentInfo);
+  console.log('Display Order:', displayOrder);
 
   return (
     <div className="fixed inset-0  bg-opacity-50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
@@ -421,7 +419,7 @@ function CatererOrderDetailsModal({ order, isOpen, onClose, onRefresh }) {
         </div>
 
         {/* Content */}
-        <div className="p-6 overflow-y-auto max-h-[calc(90vh-140px)]">
+        <div className="p-6 overflow-y-auto overscroll-contain scroll-smooth max-h-[calc(90vh-140px)]">
           {loading ? (
             <div className="flex items-center justify-center py-8">
               <div className="flex items-center gap-3">
@@ -647,7 +645,7 @@ function CatererOrderDetailsModal({ order, isOpen, onClose, onRefresh }) {
                         <div className="flex justify-between">
                           <span className="text-gray-600">Amount Paid</span>
                           <span className="font-medium text-green-600">
-                            {formatCurrency(paymentInfo.paidAmount)}
+                            {formatCurrency(paymentInfo.totalPaid)}
                           </span>
                         </div>
                         
@@ -782,14 +780,16 @@ function CatererOrderDetailsModal({ order, isOpen, onClose, onRefresh }) {
       />
 
       {/* Payment Collection Dialog */}
-      <CatererPaymentCollectionDialog
-        isOpen={paymentCollectionDialog.isOpen}
-        onClose={() => setPaymentCollectionDialog({ isOpen: false, caterer: null, bill: null })}
-        onSubmit={handlePaymentSubmit}
-        caterer={paymentCollectionDialog.caterer}
-        bill={paymentCollectionDialog.bill}
-        isLoading={updating}
-      />
+      {paymentCollectionDialog.isOpen && paymentCollectionDialog.caterer && paymentCollectionDialog.bill && (
+        <CatererPaymentCollectionDialog
+          isOpen={paymentCollectionDialog.isOpen}
+          onClose={() => setPaymentCollectionDialog({ isOpen: false, caterer: null, bill: null })}
+          onSubmit={handlePaymentSubmit}
+          caterer={paymentCollectionDialog.caterer}
+          bill={paymentCollectionDialog.bill}
+          isLoading={updating}
+        />
+      )}
     </div>
   );
 }

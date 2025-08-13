@@ -1,13 +1,11 @@
 const { pool } = require('../config/database.cjs');
 const { createOrUpdateCustomer } = require('../customers/customersController.cjs');
 
-
 // Generate unique order number
 const generateOrderNumber = async () => {
   try {
     const connection = await pool.getConnection();
     
-    // Get the latest order number
     const [rows] = await connection.execute(
       'SELECT order_number FROM orders ORDER BY id DESC LIMIT 1'
     );
@@ -45,7 +43,6 @@ const getOrders = async (req, res) => {
     let whereConditions = [];
     let queryParams = [];
     
-    // Build WHERE conditions
     if (status && status !== 'all') {
       whereConditions.push('o.status = ?');
       queryParams.push(status);
@@ -74,18 +71,13 @@ const getOrders = async (req, res) => {
     
     const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
     
-    // Get total count
     const [countResult] = await connection.execute(`
       SELECT COUNT(*) as total FROM orders o ${whereClause}
     `, queryParams);
     
     const totalOrders = countResult[0].total;
-    
-    // Get orders with items count
     const offset = (page - 1) * limit;
 
-    // Build the final query with proper parameter handling
-    // Note: profit calculation for mix items is complex and handled in frontend
     let finalQuery = `
       SELECT
         o.*,
@@ -98,7 +90,6 @@ const getOrders = async (req, res) => {
 
     let finalParams = [...queryParams];
 
-    // Add pagination if needed
     if (limit && limit > 0) {
       finalQuery += ` LIMIT ${parseInt(limit)}`;
       if (offset && offset > 0) {
@@ -136,7 +127,6 @@ const getOrderById = async (req, res) => {
     const { id } = req.params;
     const connection = await pool.getConnection();
     
-    // Get order details
     const [orderRows] = await connection.execute(
       'SELECT * FROM orders WHERE id = ?',
       [id]
@@ -150,8 +140,6 @@ const getOrderById = async (req, res) => {
       });
     }
     
-    // Get order items with product images and cost information
-    // For custom items without product_id, try to match by product name
     const [itemRows] = await connection.execute(`
       SELECT
         oi.*,
@@ -167,7 +155,6 @@ const getOrderById = async (req, res) => {
       ORDER BY oi.id
     `, [id]);
     
-    // Get status history
     const [historyRows] = await connection.execute(
       'SELECT * FROM order_status_history WHERE order_id = ? ORDER BY created_at DESC',
       [id]
@@ -175,19 +162,15 @@ const getOrderById = async (req, res) => {
     
     connection.release();
 
-    // Process items to include product images
     const processedItems = itemRows.map(item => {
       let productImage = null;
       if (item.product_images) {
         try {
-          // Check if it's already a JSON string or a direct URL
           let images;
           if (typeof item.product_images === 'string') {
-            // Try to parse as JSON first
             if (item.product_images.startsWith('[') || item.product_images.startsWith('{')) {
               images = JSON.parse(item.product_images);
             } else {
-              // It's a direct URL string
               images = [item.product_images];
             }
           } else {
@@ -206,7 +189,6 @@ const getOrderById = async (req, res) => {
           }
         } catch (e) {
           console.error('Error parsing product images:', e);
-          // If parsing fails, treat as direct URL
           if (typeof item.product_images === 'string') {
             if (item.product_images.startsWith('http')) {
               productImage = item.product_images;
@@ -216,7 +198,6 @@ const getOrderById = async (req, res) => {
           }
         }
       }
-
       return {
         ...item,
         product_image: productImage
@@ -228,8 +209,6 @@ const getOrderById = async (req, res) => {
       items: processedItems,
       status_history: historyRows
     };
-
-
 
     res.json({
       success: true,
@@ -245,7 +224,7 @@ const getOrderById = async (req, res) => {
   }
 };
 
-// Create new order
+// Create new order - FIXED VERSION
 const createOrder = async (req, res) => {
   try {
     const {
@@ -261,7 +240,6 @@ const createOrder = async (req, res) => {
       order_source = 'online'
     } = req.body;
     
-    // Validate required fields
     if (!customer_name || !customer_phone || !delivery_address || !cart_items || cart_items.length === 0) {
       return res.status(400).json({
         success: false,
@@ -273,12 +251,8 @@ const createOrder = async (req, res) => {
     await connection.beginTransaction();
     
     try {
-      // Generate order number
-      const order_number = await generateOrderNumber();
+      const order_number = await generateOrderNumber();      
       
-      console.log('🔥 [ORDER CREATION] Generated order number:', order_number);
-      
-      // Insert order
       const [orderResult] = await connection.execute(`
         INSERT INTO orders (
           order_number, customer_name, customer_phone, customer_email,
@@ -290,46 +264,10 @@ const createOrder = async (req, res) => {
       ]);
       
       const orderId = orderResult.insertId;
-      console.log('🔥 [ORDER CREATION] Order inserted with ID:', orderId);
       
-      // Insert order items
-      // Insert order items
+      // Process each cart item
       for (const item of cart_items) {
-        // Store custom details for custom items and mix details for mix items
-        let customDetails = null;
-        if (item.isCustom) {
-          customDetails = {
-            originalEnteredAmount: item.originalEnteredAmount,
-            originalRetailPrice: item.originalRetailPrice,
-            displayName: item.displayName
-          };
-        } else if (item.isMix) {
-          // Handle mix items - check different possible data structures
-          let mixItems = [];
-          let mixNumber = null;
-          let totalBudget = item.price;
-
-          if (item.mixDetails && item.mixDetails.items) {
-            mixItems = item.mixDetails.items;
-            totalBudget = item.mixDetails.totalBudget || item.price;
-            mixNumber = item.id.replace('mix-', '');
-          } else if (item.mixItems) {
-            mixItems = item.mixItems;
-            mixNumber = item.mixNumber || item.id.replace('mix-', '');
-          }
-
-          customDetails = {
-            mixItems: mixItems,
-            mixNumber: mixNumber,
-            totalWeight: item.totalWeight || item.quantity,
-            totalBudget: totalBudget,
-            itemCount: mixItems.length
-          };
-
-
-        }
-        
-        // Handle product_id - ensure it's a valid integer or null
+        // Determine product ID
         let productId = null;
         if (item.product_id) {
           const parsedId = parseInt(item.product_id);
@@ -337,14 +275,86 @@ const createOrder = async (req, res) => {
             productId = parsedId;
           }
         } else if (item.id && !item.isMix && !item.isCustom) {
-          // Only try to parse regular product IDs, not mix or custom items
           const parsedId = parseInt(item.id);
           if (!isNaN(parsedId) && parsedId > 0) {
             productId = parsedId;
           }
         }
-        // For mix items and custom items, product_id will remain null (which is allowed)
 
+        // Prepare custom details with proper structure
+        let customDetails = null;
+        
+        if (item.isCustom) {
+          customDetails = {
+            type: 'custom',
+            originalEnteredAmount: item.originalEnteredAmount,
+            originalRetailPrice: item.originalRetailPrice,
+            displayName: item.displayName
+          };
+        } else if (item.isMix || item.source === 'mix-calculator') {
+          // Enhanced mix data extraction
+          let mixItems = [];
+          let mixNumber = null;
+          let totalBudget = parseFloat(item.price) || 0;
+          let totalWeight = parseFloat(item.totalWeight) || parseFloat(item.quantity) || 0;
+
+          // Try multiple data sources for mix items
+          if (item.custom_details && item.custom_details.mixItems) {
+            mixItems = item.custom_details.mixItems;
+            mixNumber = item.custom_details.mixNumber;
+            totalBudget = item.custom_details.totalBudget || totalBudget;
+            totalWeight = item.custom_details.totalWeight || totalWeight;
+          } else if (item.mixDetails && item.mixDetails.items) {
+            mixItems = item.mixDetails.items;
+            mixNumber = item.mixDetails.mixNumber || item.id.replace('mix-', '');
+            totalBudget = item.mixDetails.totalBudget || totalBudget;
+          } else if (item.mixItems) {
+            mixItems = item.mixItems;
+            mixNumber = item.mixNumber || item.id.replace('mix-', '');
+          }
+
+          // Ensure mixItems are properly structured
+          const processedMixItems = mixItems.map(mixItem => ({
+            id: mixItem.id || mixItem.product_id,
+            name: mixItem.name || mixItem.product_name,
+            price: parseFloat(mixItem.price) || parseFloat(mixItem.retail_price) || 0,
+            calculatedQuantity: parseFloat(mixItem.calculatedQuantity) || parseFloat(mixItem.quantity) || 0,
+            actualCost: parseFloat(mixItem.actualCost) || parseFloat(mixItem.allocatedBudget) || 0,
+            unit: mixItem.unit || 'kg',
+            allocatedBudget: parseFloat(mixItem.allocatedBudget) || parseFloat(mixItem.actualCost) || 0
+          }));
+
+          customDetails = {
+            type: 'mix',
+            mixItems: processedMixItems,
+            mixNumber: mixNumber || item.id.replace('mix-', ''),
+            totalWeight: totalWeight,
+            totalBudget: totalBudget,
+            itemCount: processedMixItems.length,
+            source: 'mix-calculator'
+          };
+        }
+
+        // Convert to JSON string with error handling
+        let customDetailsJson = null;
+        if (customDetails) {
+          try {
+            customDetailsJson = JSON.stringify(customDetails);
+            // Validate JSON can be parsed back
+            JSON.parse(customDetailsJson);
+          } catch (jsonError) {
+            console.error('JSON serialization error:', jsonError);
+            console.error('Failed to serialize:', customDetails);
+            // Fallback to simpler structure
+            customDetailsJson = JSON.stringify({
+              type: item.isMix ? 'mix' : 'custom',
+              error: 'Serialization failed',
+              originalData: String(customDetails).substring(0, 500)
+            });
+          }
+        }
+
+        // Insert order item with proper error handling
         await connection.execute(`
           INSERT INTO order_items (
             order_id, product_id, product_name, quantity, unit,
@@ -354,17 +364,15 @@ const createOrder = async (req, res) => {
           orderId,
           productId,
           item.name,
-          item.quantity,
+          parseFloat(item.quantity) || 1,
           item.unit || 'kg',
-          item.price,
-          item.originalEnteredAmount || (item.price * item.quantity),
+          parseFloat(item.price) || 0,
+          parseFloat(item.originalEnteredAmount) || (parseFloat(item.price) * parseFloat(item.quantity)),
           item.isMix ? 'mix-calculator' : (item.isCustom ? 'custom' : 'manual'),
           item.mixNumber || null,
-          item.isCustom || false,
-          customDetails ? JSON.stringify(customDetails) : null
+          Boolean(item.isCustom) || false,
+          customDetailsJson
         ]);
-
-
       }
       
       // Add initial status history
@@ -372,8 +380,6 @@ const createOrder = async (req, res) => {
         INSERT INTO order_status_history (order_id, new_status, notes)
         VALUES (?, 'pending', 'Order created')
       `, [orderId]);
-      
-      console.log('🔥 [ORDER CREATION] Order created successfully:', { orderId, order_number });
       
       await connection.commit();
       connection.release();
@@ -419,7 +425,6 @@ const updateOrderStatus = async (req, res) => {
     await connection.beginTransaction();
 
     try {
-      // Get current status
       const [currentOrder] = await connection.execute(
         'SELECT status FROM orders WHERE id = ?',
         [id]
@@ -436,7 +441,6 @@ const updateOrderStatus = async (req, res) => {
 
       const oldStatus = currentOrder[0].status;
 
-      // Update order status and timestamps
       let updateFields = ['status = ?'];
       let updateValues = [status];
 
@@ -458,23 +462,14 @@ const updateOrderStatus = async (req, res) => {
         UPDATE orders SET ${updateFields.join(', ')} WHERE id = ?
       `, updateValues);
 
-      // Add status history
       await connection.execute(`
         INSERT INTO order_status_history (order_id, old_status, new_status, changed_by, notes)
         VALUES (?, ?, ?, ?, ?)
       `, [id, oldStatus, status, changed_by, notes]);
 
-      // If status is delivered, create customer bill
+      // Handle bill creation for delivered orders
       if (status === 'delivered' && oldStatus !== 'delivered') {
-        console.log('🔥 [BILL CREATION] Attempting to create bill for delivered order:', {
-          orderId: id,
-          oldStatus,
-          newStatus: status,
-          timestamp: new Date().toISOString()
-        });
-
         try {
-          // Get order details with items
           const [orderResult] = await connection.execute(`
             SELECT o.*,
                    GROUP_CONCAT(
@@ -494,12 +489,8 @@ const updateOrderStatus = async (req, res) => {
 
           if (orderResult.length > 0) {
             const order = orderResult[0];
-            console.log('🔥 [BILL CREATION] Retrieved order details:', { orderId: id, orderNumber: order.order_number });
-
-            // Create or update customer
             const customerId = await createOrUpdateCustomer(order);
 
-            // Parse order items
             let orderItems = [];
             if (order.order_items) {
               try {
@@ -510,19 +501,11 @@ const updateOrderStatus = async (req, res) => {
               }
             }
 
-            // Check if bill already exists for this order - CRITICAL FIX TO PREVENT DUPLICATES
             const [existingBills] = await connection.execute(`
               SELECT id, bill_number FROM customer_bills WHERE order_id = ?
             `, [id]);
 
-            console.log('🔥 [BILL CREATION] Existing bills check:', {
-              orderId: id,
-              existingBills: existingBills.map(b => ({ id: b.id, number: b.bill_number }))
-            });
-
             if (existingBills.length > 0) {
-              console.log(`🔥 [BILL CREATION] Bill already exists for order ${order.order_number}, skipping creation`);
-              // Update existing bill amounts if needed (in case of order modifications)
               await connection.execute(`
                 UPDATE customer_bills
                 SET
@@ -539,13 +522,9 @@ const updateOrderStatus = async (req, res) => {
                 order.total_amount,
                 id
               ]);
-              console.log(`🔥 [BILL CREATION] Updated existing bill amounts for order ${order.order_number}`);
             } else {
-              console.log('🔥 [BILL CREATION] No existing bill found, creating new bill...');
-              // Generate bill number
               const billNumber = `BILL-${Date.now()}`;
 
-              // Create customer bill
               const [billResult] = await connection.execute(`
                 INSERT INTO customer_bills (
                   customer_id, order_id, bill_number, bill_date,
@@ -561,13 +540,10 @@ const updateOrderStatus = async (req, res) => {
                 order.total_amount,
                 order.total_amount
               ]);
+              
               const billId = billResult.insertId;
-              console.log('🔥 [BILL CREATION] Bill created successfully:', { billId, billNumber, orderId: id });
-
-              // Automatically record payment for the full bill amount
               const paymentAmount = order.total_amount;
               
-              // Create payment record with receipt upload placeholder
               await connection.execute(`
                 INSERT INTO customer_payments (
                   customer_id, bill_id, payment_date, amount,
@@ -578,10 +554,9 @@ const updateOrderStatus = async (req, res) => {
                 billId,
                 paymentAmount,
                 `Payment for order ${order.order_number} (Bill ${billNumber})`,
-                `/api/receipts/bill-${billId}.pdf` // Placeholder for receipt upload
+                `/api/receipts/bill-${billId}.pdf`
               ]);
 
-              // Update bill status to 'paid' since full payment is recorded
               await connection.execute(`
                 UPDATE customer_bills
                 SET
@@ -592,7 +567,6 @@ const updateOrderStatus = async (req, res) => {
                 WHERE id = ?
               `, [paymentAmount, billId]);
 
-              // Update customer totals
               await connection.execute(`
                 UPDATE customers
                 SET
@@ -601,15 +575,11 @@ const updateOrderStatus = async (req, res) => {
                   updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
               `, [paymentAmount, paymentAmount, customerId]);
-
-              console.log('🔥 [BILL CREATION] Automatic payment recorded for bill:', { billId, amount: paymentAmount });
             }
 
-            // If payment was provided, record it
             if (payment && payment.amount > 0) {
               const paymentAmount = parseFloat(payment.amount);
 
-              // Create payment record
               await connection.execute(`
                 INSERT INTO customer_payments (
                   customer_id, bill_id, payment_date, amount,
@@ -624,7 +594,6 @@ const updateOrderStatus = async (req, res) => {
                 payment.notes || `Payment for order ${order.order_number}`
               ]);
 
-              // Update bill status and amounts
               await connection.execute(`
                 UPDATE customer_bills
                 SET
@@ -639,7 +608,6 @@ const updateOrderStatus = async (req, res) => {
                 WHERE id = ?
               `, [paymentAmount, paymentAmount, paymentAmount, paymentAmount, billId]);
 
-              // Update customer totals
               await connection.execute(`
                 UPDATE customers
                 SET
@@ -652,7 +620,6 @@ const updateOrderStatus = async (req, res) => {
           }
         } catch (billError) {
           console.error('Error creating customer bill:', billError);
-          // Don't fail the status update if bill creation fails
         }
       }
 
@@ -691,7 +658,6 @@ const getOrderStats = async (req, res) => {
     let whereConditions = [];
     let queryParams = [];
 
-    // Build WHERE conditions for date filtering
     if (date_from) {
       whereConditions.push('DATE(created_at) >= ?');
       queryParams.push(date_from);
@@ -704,7 +670,6 @@ const getOrderStats = async (req, res) => {
 
     const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
 
-    // Get status counts
     const [statusCounts] = await connection.execute(`
       SELECT
         status,
@@ -716,7 +681,6 @@ const getOrderStats = async (req, res) => {
       GROUP BY status
     `, queryParams);
 
-    // Get today's orders
     const [todayStats] = await connection.execute(`
       SELECT
         COUNT(*) as today_orders,
@@ -725,7 +689,6 @@ const getOrderStats = async (req, res) => {
       WHERE DATE(created_at) = CURDATE()
     `);
 
-    // Get monthly stats
     const [monthlyStats] = await connection.execute(`
       SELECT
         COUNT(*) as month_orders,
@@ -736,12 +699,10 @@ const getOrderStats = async (req, res) => {
       AND MONTH(created_at) = MONTH(CURDATE())
     `);
 
-    // Get delivered orders profit (calculated from actual inventory costs) with date filtering
     const deliveredWhereClause = whereConditions.length > 0
       ? `WHERE o.status = 'delivered' AND ${whereConditions.join(' AND ')}`
       : `WHERE o.status = 'delivered'`;
 
-    // Calculate profit manually to handle mix items properly
     const [deliveredOrders] = await connection.execute(`
       SELECT o.id, o.total_amount
       FROM orders o
@@ -754,7 +715,6 @@ const getOrderStats = async (req, res) => {
     for (const order of deliveredOrders) {
       deliveredRevenue += parseFloat(order.total_amount);
 
-      // Get order items with cost data
       const [orderItems] = await connection.execute(`
         SELECT
           oi.*,
@@ -766,13 +726,11 @@ const getOrderStats = async (req, res) => {
         WHERE oi.order_id = ?
       `, [order.id]);
 
-      // Calculate profit for each item
       for (const item of orderItems) {
         const quantity = parseFloat(item.quantity) || 0;
         const unitPrice = parseFloat(item.unit_price) || 0;
         const costPrice = parseFloat(item.average_cost_price) || 0;
 
-        // Handle mix items specially
         if (item.source === 'mix-calculator' && item.custom_details) {
           try {
             const customDetails = typeof item.custom_details === 'string'
@@ -786,7 +744,6 @@ const getOrderStats = async (req, res) => {
                 const mixQuantity = parseFloat(mixItem.calculatedQuantity || mixItem.quantity || 0);
                 const mixRetailPrice = parseFloat(mixItem.price || 0);
 
-                // Look up cost price from inventory_summary by product name
                 const [costData] = await connection.execute(`
                   SELECT inv.average_cost_per_kg
                   FROM inventory_summary inv
@@ -810,7 +767,6 @@ const getOrderStats = async (req, res) => {
             console.error('Error parsing mix item custom_details:', e);
           }
         } else {
-          // Regular item profit calculation
           if (costPrice > 0) {
             const profitPerUnit = unitPrice - costPrice;
             const itemProfit = profitPerUnit * quantity;
@@ -831,7 +787,6 @@ const getOrderStats = async (req, res) => {
 
     connection.release();
 
-    // Format response
     const stats = {
       total: 0,
       pending: 0,

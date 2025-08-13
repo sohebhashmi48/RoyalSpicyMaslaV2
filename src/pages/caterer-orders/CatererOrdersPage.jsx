@@ -146,16 +146,18 @@ function CatererOrdersPage() {
   // FIXED: Helper function to calculate payment info similar to CatererOrderDetailsModal
   const getPaymentInfo = (orderData) => {
     const advancePayment = Number(orderData.payment_amount || orderData.advance_payment_amount || 0);
-    const additionalPayments = Number(orderData.total_paid_amount || 0);
-    const totalPaid = advancePayment + additionalPayments;
+    const paymentsSum = Number(orderData.total_paid_amount || 0);
     const totalAmount = Number(orderData.total_amount || 0);
-    const remainingBalance = totalAmount - totalPaid;
+
+    // Avoid double-counting: if paymentsSum exists, it already includes any ADV entry
+    const totalPaid = paymentsSum > 0 ? paymentsSum : advancePayment;
+    const remainingBalance = Math.max(0, totalAmount - totalPaid);
 
     return {
       totalPaid,
-      remainingBalance: Math.max(0, remainingBalance),
+      remainingBalance,
       advancePayment,
-      additionalPayments
+      additionalPayments: paymentsSum
     };
   };
 
@@ -642,7 +644,7 @@ function CatererOrdersPage() {
       )}
 
       {/* Payment Collection Dialog */}
-      {paymentCollectionDialog.isOpen && (
+      {paymentCollectionDialog.isOpen && paymentCollectionDialog.caterer && paymentCollectionDialog.bill && (
         <CatererPaymentCollectionDialog
           isOpen={paymentCollectionDialog.isOpen}
           onClose={() => setPaymentCollectionDialog({ isOpen: false, caterer: null, bill: null })}

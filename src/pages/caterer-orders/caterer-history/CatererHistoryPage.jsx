@@ -9,11 +9,9 @@ import CatererHistoryBills from '../../../components/caterer-orders/caterer-hist
 import CatererHistoryPagination from '../../../components/caterer-orders/caterer-history/CatererHistoryPagination';
 import {
   FileText,
-  Clock,
   AlertCircle,
   Receipt,
-  CheckCircle,
-  XCircle
+  CheckCircle
 } from 'lucide-react';
 
 function CatererHistoryPage() {
@@ -38,6 +36,10 @@ function CatererHistoryPage() {
   const [minAmount, setMinAmount] = useState('');
   const [maxAmount, setMaxAmount] = useState('');
   const [showFilters, setShowFilters] = useState(false);
+  
+  // Date filter states
+  const [dateFilter, setDateFilter] = useState('all'); // 'all', 'this_week', 'this_month', 'last_15_days', '6_months'
+  const [selectedDate, setSelectedDate] = useState(''); // For specific date selection
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
@@ -48,7 +50,7 @@ function CatererHistoryPage() {
   useEffect(() => {
     fetchCatererHistory();
     fetchCatererStats();
-  }, [activeTab, searchQuery, minAmount, maxAmount, currentPage]);
+  }, [activeTab, searchQuery, minAmount, maxAmount, dateFilter, selectedDate, currentPage]);
 
   const fetchCatererHistory = async () => {
     try {
@@ -68,6 +70,11 @@ function CatererHistoryPage() {
       }
       if (maxAmount.trim()) {
         params.append('max_amount', maxAmount.trim());
+      }
+      if (selectedDate) {
+        params.append('selected_date', selectedDate);
+      } else if (dateFilter && dateFilter !== 'all') {
+        params.append('date_filter', dateFilter);
       }
 
       const response = await fetch(`http://localhost:5000/api/caterer-orders/history?${params}`);
@@ -90,7 +97,14 @@ function CatererHistoryPage() {
 
   const fetchCatererStats = async () => {
     try {
-      const response = await fetch('http://localhost:5000/api/caterer-orders/history/stats');
+      const params = new URLSearchParams();
+      if (selectedDate) {
+        params.append('selected_date', selectedDate);
+      } else if (dateFilter && dateFilter !== 'all') {
+        params.append('date_filter', dateFilter);
+      }
+
+      const response = await fetch(`http://localhost:5000/api/caterer-orders/history/stats?${params}`);
       const result = await response.json();
 
       if (result.success) {
@@ -104,11 +118,9 @@ function CatererHistoryPage() {
   // Tab configuration
   const tabs = [
     { id: 'all', label: 'All Bills', icon: FileText, count: stats?.total_bills || 0 },
-    { id: 'pending_caterers', label: 'Pending Caterers', icon: Clock, count: stats?.bills_with_pending_amount || 0 },
     { id: 'pending', label: 'Pending', icon: AlertCircle, count: stats?.pending_bills || 0 },
     { id: 'partial', label: 'Partial', icon: Receipt, count: stats?.partial_bills || 0 },
-    { id: 'paid', label: 'Paid', icon: CheckCircle, count: stats?.paid_bills || 0 },
-    { id: 'overdue', label: 'Overdue', icon: XCircle, count: stats?.overdue_bills || 0 }
+    { id: 'paid', label: 'Paid', icon: CheckCircle, count: stats?.paid_bills || 0 }
   ];
 
   // Format currency
@@ -140,6 +152,38 @@ function CatererHistoryPage() {
     });
   };
 
+  // Get date range based on filter
+  const getDateRange = (filterType) => {
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    
+    switch (filterType) {
+      case 'this_week':
+        const startOfWeek = new Date(today);
+        const dayOfWeek = startOfWeek.getDay();
+        const diff = startOfWeek.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
+        startOfWeek.setDate(diff);
+        return { start: startOfWeek, end: today };
+      
+      case 'this_month':
+        const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+        return { start: startOfMonth, end: today };
+      
+      case 'last_15_days':
+        const startOf15Days = new Date(today);
+        startOf15Days.setDate(today.getDate() - 14);
+        return { start: startOf15Days, end: today };
+      
+      case '6_months':
+        const startOf6Months = new Date(today);
+        startOf6Months.setMonth(today.getMonth() - 5);
+        return { start: startOf6Months, end: today };
+      
+      default:
+        return { start: null, end: null };
+    }
+  };
+
   // Handle search
   const handleSearch = (e) => {
     setSearchQuery(e.target.value);
@@ -156,6 +200,24 @@ function CatererHistoryPage() {
     setCurrentPage(1); // Reset to first page when filtering
   };
 
+  // Handle date filter changes
+  const handleDateFilterChange = (filterType, value) => {
+    if (filterType === 'dateFilter') {
+      setDateFilter(value);
+      // When using a preset range, clear specific date to avoid conflicts
+      if (value !== 'all') {
+        setSelectedDate('');
+      }
+    } else if (filterType === 'selectedDate') {
+      setSelectedDate(value);
+      // When selecting a specific date, ignore preset ranges
+      if (value) {
+        setDateFilter('all');
+      }
+    }
+    setCurrentPage(1); // Reset to first page when filtering
+  };
+
   // Handle tab change
   const handleTabChange = (tabId) => {
     setActiveTab(tabId);
@@ -167,6 +229,8 @@ function CatererHistoryPage() {
     setSearchQuery('');
     setMinAmount('');
     setMaxAmount('');
+    setDateFilter('all');
+    setSelectedDate('');
     setCurrentPage(1);
   };
 
@@ -300,14 +364,17 @@ function CatererHistoryPage() {
         handleTabChange={handleTabChange} 
       />
       
-      <CatererHistoryFilters 
+      <CatererHistoryFilters
         searchQuery={searchQuery}
         handleSearch={handleSearch}
         showFilters={showFilters}
         setShowFilters={setShowFilters}
         minAmount={minAmount}
         maxAmount={maxAmount}
+        dateFilter={dateFilter}
+        selectedDate={selectedDate}
         handleFilterChange={handleFilterChange}
+        handleDateFilterChange={handleDateFilterChange}
         clearFilters={clearFilters}
       />
       
@@ -331,14 +398,16 @@ function CatererHistoryPage() {
       </div>
       
       {/* Payment Collection Dialog */}
-      <CatererPaymentCollectionDialog
-        isOpen={paymentDialog.isOpen}
-        onClose={closePaymentDialog}
-        onSubmit={handlePaymentSubmit}
-        caterer={paymentDialog.selectedCaterer}
-        bill={paymentDialog.selectedBill}
-        isLoading={isPaymentLoading}
-      />
+      {paymentDialog.isOpen && paymentDialog.selectedCaterer && paymentDialog.selectedBill && (
+        <CatererPaymentCollectionDialog
+          isOpen={paymentDialog.isOpen}
+          onClose={closePaymentDialog}
+          onSubmit={handlePaymentSubmit}
+          caterer={paymentDialog.selectedCaterer}
+          bill={paymentDialog.selectedBill}
+          isLoading={isPaymentLoading}
+        />
+      )}
     </div>
   );
 }

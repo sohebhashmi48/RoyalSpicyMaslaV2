@@ -47,7 +47,7 @@ function Header({
               <h1 className="text-xl lg:text-2xl font-bold gradient-text">
                 RoyalSpicyMasala
               </h1>
-              <p className="text-sm text-gray-600">Caterer Portal - Premium Spices & Masalas</p>
+              <p className="text-sm text-gray-600">Customer Portal - Premium Spices & Masalas</p>
             </div>
           </div>
 
