@@ -29,25 +29,29 @@ export default function BatchAllocationDialog({ isOpen, onClose, order }) {
     currentAllocations: []
   });
 
+  // Helper function to format currency
+  const formatCurrency = (amount) => {
+    if (typeof amount !== 'number' || isNaN(amount)) return '₹0.00';
+    return `₹${amount.toFixed(2)}`;
+  };
+
   const itemsNeedingAllocation = useMemo(() => {
     const items = orderData?.items || [];
     const allocationItems = [];
 
+    console.log('🔥 [DEBUG] Processing items:', items);
+
     for (const item of items) {
-      // Handle regular items with product_id
-      if (item.product_id || parseInt(item.id)) {
-        allocationItems.push({
-          order_item_id: item.id,
-          product_id: item.product_id || parseInt(item.id) || null,
-          product_name: item.product_name,
-          quantity: parseFloat(item.quantity),
-          unit: item.unit || 'kg',
-          source: 'regular'
-        });
-      }
-      
-      // Handle mix items - extract individual products from custom_details
-      else if (item.source === 'mix-calculator' && item.custom_details) {
+      console.log('🔥 [DEBUG] Processing item:', {
+        id: item.id,
+        name: item.product_name,
+        source: item.source,
+        hasCustomDetails: !!item.custom_details,
+        productId: item.product_id
+      });
+
+      // SKIP mix container items - we only want their components
+      if (item.source === 'mix-calculator') {
         let customDetails;
         try {
           customDetails = typeof item.custom_details === 'string' 
@@ -58,9 +62,19 @@ export default function BatchAllocationDialog({ isOpen, onClose, order }) {
           continue;
         }
 
+        console.log('🔥 [DEBUG] Mix custom_details:', customDetails);
+
         if (customDetails && customDetails.mixItems && Array.isArray(customDetails.mixItems)) {
+          console.log('🔥 [DEBUG] Found mixItems:', customDetails.mixItems);
+          
           customDetails.mixItems.forEach((mixItem, index) => {
             const productId = parseInt(mixItem.id) || parseInt(mixItem.product_id);
+            console.log('🔥 [DEBUG] Processing mixItem:', {
+              name: mixItem.name,
+              productId: productId,
+              quantity: mixItem.calculatedQuantity
+            });
+            
             if (productId) {
               allocationItems.push({
                 order_item_id: `${item.id}_mix_${index}`,
@@ -68,6 +82,7 @@ export default function BatchAllocationDialog({ isOpen, onClose, order }) {
                 product_name: mixItem.name,
                 quantity: parseFloat(mixItem.calculatedQuantity || mixItem.quantity || 0),
                 unit: mixItem.unit || 'kg',
+                price: parseFloat(mixItem.price || 0),
                 source: 'mix',
                 parent_mix_id: item.id,
                 parent_mix_name: item.product_name,
@@ -76,10 +91,25 @@ export default function BatchAllocationDialog({ isOpen, onClose, order }) {
               });
             }
           });
+        } else {
+          console.warn('🔥 [DEBUG] No mixItems found in custom_details');
         }
+      }
+      // Handle regular items with product_id (but NOT mix containers)
+      else if ((item.product_id || parseInt(item.id)) && item.source !== 'mix-calculator') {
+        console.log('🔥 [DEBUG] Adding regular item:', item.product_name);
+        allocationItems.push({
+          order_item_id: item.id,
+          product_id: item.product_id || parseInt(item.id) || null,
+          product_name: item.product_name,
+          quantity: parseFloat(item.quantity),
+          unit: item.unit || 'kg',
+          source: 'regular'
+        });
       }
     }
 
+    console.log('🔥 [DEBUG] Final allocation items:', allocationItems);
     return allocationItems.filter(i => i.product_id);
   }, [orderData]);
 
@@ -143,7 +173,10 @@ export default function BatchAllocationDialog({ isOpen, onClose, order }) {
           setLoading(true);
           const res = await fetch(`http://localhost:5000/api/orders/${order.id}`);
           const data = await res.json();
-          if (data.success) setOrderData(data.data);
+          if (data.success) {
+            console.log('🔥 [DEBUG] Loaded order data:', data.data);
+            setOrderData(data.data);
+          }
         } catch (e) {
           console.error(e);
           showError('Failed to load order details');
@@ -280,24 +313,20 @@ export default function BatchAllocationDialog({ isOpen, onClose, order }) {
     });
   };
 
-  // Group items by mix for better display
+  // Group items by mix for simple display format
   const groupedItems = useMemo(() => {
-    const groups = {};
+    const groups = [];
     const regularItems = [];
     const mixGroups = {};
     
     itemsNeedingAllocation.forEach(item => {
       if (item.source === 'mix') {
-        // Group by parent mix
         if (!mixGroups[item.parent_mix_id]) {
           mixGroups[item.parent_mix_id] = {
             type: 'mix',
-            parent_mix_id: item.parent_mix_id,
-            parent_mix_name: item.parent_mix_name,
+            mix_id: item.parent_mix_id,
+            mix_name: item.parent_mix_name,
             mix_number: item.mix_number,
-            title: `${item.parent_mix_name} (Mix ${item.mix_number})`,
-            totalBudget: item.mix_details?.totalBudget || 0,
-            totalWeight: item.mix_details?.totalWeight || 0,
             items: []
           };
         }
@@ -307,22 +336,30 @@ export default function BatchAllocationDialog({ isOpen, onClose, order }) {
       }
     });
 
-    // Create regular products section
-    if (regularItems.length > 0) {
-      groups['regular_products'] = {
-        type: 'regular_products',
+    // Add regular products first (excluding those that are also in mixes)
+    const regularNonMixItems = regularItems.filter(item => {
+      // Check if this item is also part of a mix
+      return !itemsNeedingAllocation.some(mixItem => 
+        mixItem.source === 'mix' && 
+        mixItem.product_id === item.product_id
+      );
+    });
+
+    if (regularNonMixItems.length > 0) {
+      groups.push({
+        type: 'regular',
         title: 'Regular Products',
-        description: 'Individual products that need batch allocation',
-        items: regularItems
-      };
+        items: regularNonMixItems
+      });
     }
 
-    // Create mix sections - showing products inside each mix
+    // Add mix groups
     Object.values(mixGroups).forEach(mixGroup => {
-      groups[`mix_${mixGroup.parent_mix_id}`] = mixGroup;
+      groups.push(mixGroup);
     });
     
-    return Object.values(groups);
+    console.log('🔥 [DEBUG] Grouped items:', groups);
+    return groups;
   }, [itemsNeedingAllocation]);
 
   return (
@@ -348,157 +385,102 @@ export default function BatchAllocationDialog({ isOpen, onClose, order }) {
           )}
 
           <div className="flex-1 overflow-y-auto px-6 py-4">
-            <div className="space-y-6">
+            <div className="space-y-8">
               {groupedItems.map((group, groupIndex) => (
-                <div key={groupIndex} className="space-y-4">
-                  {/* Section Header */}
-                  <div className={`rounded-lg p-4 ${
-                    group.type === 'regular_products'
-                      ? 'bg-blue-50 border border-blue-200'
-                      : 'bg-orange-50 border border-orange-200'
-                  }`}>
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        {group.type === 'regular_products' ? (
-                          <svg className="h-5 w-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
-                          </svg>
-                        ) : (
-                          <svg className="h-5 w-5 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-                          </svg>
-                        )}
-                        <h3 className={`font-medium ${
-                          group.type === 'regular_products'
-                            ? 'text-blue-800'
-                            : 'text-orange-800'
-                        }`}>
-                          {group.title}
-                        </h3>
-                        {group.type === 'mix' && (
-                          <div className="flex items-center gap-2">
-                            <Badge variant="outline" className="bg-orange-100 text-orange-700">
-                              {group.items.length} products
-                            </Badge>
-                            <Badge variant="outline" className="bg-orange-100 text-orange-700">
-                              {formatCurrency(group.totalBudget)}
-                            </Badge>
-                          </div>
-                        )}
-                      </div>
-                      {group.description && (
-                        <p className={`text-sm ${
-                          group.type === 'regular_products'
-                            ? 'text-blue-600'
-                            : 'text-orange-600'
-                        }`}>
-                          {group.description}
-                        </p>
-                      )}
+                <div key={groupIndex}>
+                  {/* Group Header */}
+                  {group.type === 'regular' ? (
+                    <div className="mb-6">
+                      <h3 className="text-lg font-semibold text-blue-800 mb-4 flex items-center gap-2">
+                        <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
+                        </svg>
+                        {group.title}
+                      </h3>
                     </div>
-                  </div>
-                  
-                  {group.items.map((item) => {
-                    const batches = availableBatches[item.product_id] || [];
-                    const itemAllocs = allocations[item.order_item_id] || [];
-                    const allocated = totalAllocatedForItem(item.order_item_id);
-                    const remaining = Math.max(0, (parseFloat(item.quantity) || 0) - allocated);
-                    const isFullyAllocated = remaining < 0.001;
-                    
-                    return (
-                      <div key={item.order_item_id} className={`border rounded-lg p-5 bg-white shadow-sm ${
-                        group.type === 'mix' ? 'border-orange-200 ml-4' : 'border-gray-200'
-                      }`}>
-                        <div className="flex items-center justify-between mb-4">
-                          <div className="flex items-center gap-3">
-                            {group.type === 'mix' && (
-                              <div className="w-2 h-2 bg-orange-400 rounded-full"></div>
-                            )}
-                            <div className="font-semibold text-lg">{item.product_name}</div>
-                            {group.type === 'mix' && (
-                              <div className="flex items-center gap-2">
-                                <span className="text-xs bg-orange-100 text-orange-700 px-2 py-1 rounded">
-                                  Mix Product
-                                </span>
-                                {item.allocated_cost && (
-                                  <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded">
-                                    {formatCurrency(item.allocated_cost)} allocated
+                  ) : (
+                    <div className="mb-6">
+                      <h3 className="text-lg font-semibold text-orange-800 mb-4 flex items-center gap-2">
+                        <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                        </svg>
+                        Mix {group.mix_number}
+                      </h3>
+                    </div>
+                  )}
+
+                  {/* Products List */}
+                  <div className="space-y-4">
+                    {group.items.length === 0 ? (
+                      <div className="text-center py-8 text-gray-500">
+                        <p>No items to allocate in this group</p>
+                        <p className="text-sm">Check if mix items have valid product IDs</p>
+                      </div>
+                    ) : (
+                      group.items.map((item, itemIndex) => {
+                        const itemAllocs = allocations[item.order_item_id] || [];
+                        const allocated = totalAllocatedForItem(item.order_item_id);
+                        const remaining = Math.max(0, (parseFloat(item.quantity) || 0) - allocated);
+                        const isFullyAllocated = remaining < 0.001;
+                        
+                        return (
+                          <div key={item.order_item_id} className="bg-white border border-gray-200 rounded-lg p-4">
+                            {/* Product Row */}
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-4">
+                                {group.type === 'mix' && (
+                                  <span className="text-orange-600 font-medium text-sm w-6">
+                                    {itemIndex + 1}.
                                   </span>
                                 )}
+                                <div>
+                                  <div className="font-medium text-gray-900">{item.product_name}</div>
+                                  <div className="text-sm text-gray-500">
+                                    Quantity: {item.quantity} {item.unit}
+                                    {item.price && ` • Price: ${formatCurrency(item.price)}/${item.unit}`}
+                                  </div>
+                                </div>
                               </div>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-3">
-                            <div className={`text-sm px-3 py-1 rounded-full ${
-                              isFullyAllocated
-                                ? 'text-green-700 bg-green-50'
-                                : 'text-gray-600 bg-gray-50'
-                            }`}>
-                              Required: {item.quantity} {item.unit} | Remaining: {remaining.toFixed(3)} {item.unit}
-                            </div>
-                            <div className="flex gap-2">
-                              {!isFullyAllocated && (
+                              
+                              <div className="flex items-center gap-3">
+                                <div className={`text-sm px-3 py-1 rounded-full ${
+                                  isFullyAllocated
+                                    ? 'text-green-700 bg-green-100'
+                                    : 'text-orange-600 bg-orange-100'
+                                }`}>
+                                  {isFullyAllocated ? 'Allocated' : `Remaining: ${remaining.toFixed(3)} ${item.unit}`}
+                                </div>
+                                
                                 <Button
                                   variant="outline"
                                   size="sm"
-                                  onClick={() => autoAllocateForItem(item)}
+                                  onClick={() => openBatchSelection(item)}
                                   className="bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100"
                                 >
-                                  <svg className="h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                                  </svg>
-                                  Auto Allocate
-                                </Button>
-                              )}
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => openBatchSelection(item)}
-                                className="bg-purple-50 border-purple-200 text-purple-700 hover:bg-purple-100"
-                              >
-                                <svg className="h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
-                                </svg>
-                                Select Batches
-                              </Button>
-                            </div>
-                          </div>
-                        </div>
-                        
-                        {/* Current Allocations - Only show if allocations exist */}
-                        {itemAllocs.length > 0 && (
-                          <div className="mt-4 space-y-3">
-                            <div className="text-sm font-medium text-gray-700 mb-3 flex items-center gap-2">
-                              <svg className="h-4 w-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                              </svg>
-                              Current Allocations
-                            </div>
-                            {itemAllocs.map((a, idx) => (
-                              <div key={`${a.batch}-${idx}`} className="flex items-center gap-3 p-3 bg-green-50 border border-green-200 rounded-lg">
-                                <div className="font-mono text-sm font-medium text-green-700 w-32">{a.batch}</div>
-                                <div className="flex-1 flex items-center gap-2">
-                                  <QuantityInput
-                                    value={a.quantity}
-                                    onChange={(q) => updateAllocationQty(item.order_item_id, idx, q)}
-                                  />
-                                  <div className="text-sm text-gray-500">{item.unit}</div>
-                                </div>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => removeAllocation(item.order_item_id, idx)}
-                                  className="text-red-500 hover:text-red-700 hover:bg-red-50"
-                                >
-                                  Remove
+                                  Select Batches
                                 </Button>
                               </div>
-                            ))}
+                            </div>
+
+                            {/* Current Allocations */}
+                            {itemAllocs.length > 0 && (
+                              <div className="mt-4 pt-4 border-t border-gray-100">
+                                <div className="text-sm font-medium text-gray-700 mb-2">Current Allocations:</div>
+                                <div className="space-y-2">
+                                  {itemAllocs.map((alloc, idx) => (
+                                    <div key={`${alloc.batch}-${idx}`} className="flex items-center justify-between text-sm bg-gray-50 p-2 rounded">
+                                      <span className="font-mono">{alloc.batch}</span>
+                                      <span>{alloc.quantity} {alloc.unit}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
                           </div>
-                        )}
-                      </div>
-                    );
-                  })}
+                        );
+                      })
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
@@ -529,7 +511,7 @@ export default function BatchAllocationDialog({ isOpen, onClose, order }) {
                   <>
                     <svg className="h-4 w-4 mr-2 animate-spin" fill="none" viewBox="0 0 24 24">
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 714 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                     </svg>
                     Saving...
                   </>
