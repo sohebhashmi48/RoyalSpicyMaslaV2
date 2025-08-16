@@ -19,10 +19,14 @@ export default function PaymentConfirmationDialog({
 }) {
   const formatCurrency = (amount) => `₹${amount?.toLocaleString('en-IN') || 0}`;
 
-  if (!orderDetails) return null;
+  if (!orderDetails) {
+    return null;
+  }
 
   return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
+    <Dialog open={isOpen} onOpenChange={(open) => {
+      onClose();
+    }}>
       <DialogContent className="max-w-lg w-full mx-4 p-6 max-h-[90vh] overflow-y-auto">
         <DialogHeader className="space-y-3 pb-6">
           <DialogTitle className="flex items-center gap-3 text-xl">

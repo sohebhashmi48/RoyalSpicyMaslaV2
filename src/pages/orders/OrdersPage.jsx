@@ -397,7 +397,7 @@ export default function OrdersPage() {
     }
   }, [confirmationDialog.isOpen, selectedDate]);
 
-  // Delivery payment dialog functionality temporarily removed
+  // Delivery payment dialog functionality restored - now shows confirmation dialog
 
   // Use real stats or fallback to calculated stats
   const stats = useMemo(() => {
@@ -451,12 +451,12 @@ export default function OrdersPage() {
   }, [orders, filters]);
 
   // Event handlers
-  const handleViewOrder = (order) => {
+  const handleViewOrder = useCallback((order) => {
     setSelectedOrder(order);
     setIsDetailsModalOpen(true);
-  };
+  }, []);
 
-  const handleOrderAction = (order, action) => {
+  const handleOrderAction = useCallback((order, action) => {
     console.log('🔥 [FRONTEND] Order action triggered:', {
       orderId: order.id,
       orderNumber: order.order_number,
@@ -469,7 +469,7 @@ export default function OrdersPage() {
       return;
     }
     setConfirmationDialog({ isOpen: true, order, action });
-  };
+  }, []);
 
   const handleConfirmAction = async () => {
     if (!confirmationDialog.order) return;
@@ -555,10 +555,13 @@ export default function OrdersPage() {
         // Close confirmation dialog first
         setConfirmationDialog({ isOpen: false, order: null, action: 'approve' });
 
-        // If status changed to delivered, payment is now automatic - skip payment dialog
+        // If status changed to delivered, show payment confirmation dialog
         if (newStatus === 'delivered') {
-          console.log('🔥 [FRONTEND] Status changed to delivered, payment recorded automatically');
-          showSuccess(`Payment of ₹${formatCurrency(order.total_amount)} recorded automatically for order ${order.order_number}`);
+          console.log('🔥 [FRONTEND] Status changed to delivered, showing payment confirmation dialog');
+          setPaymentConfirmDialog({
+            isOpen: true,
+            orderData: order
+          });
         }
 
         // Refresh orders and close details modal
@@ -686,9 +689,9 @@ export default function OrdersPage() {
     });
   };
 
-  const updateFilter = (key, value) => {
+  const updateFilter = useCallback((key, value) => {
     setFilters(prev => ({ ...prev, [key]: value }));
-  };
+  }, []);
 
   return (
     <div className="p-6 space-y-6">
@@ -758,33 +761,47 @@ export default function OrdersPage() {
           </div>
 
           {/* Stats Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
-        {[
-          { label: 'Total', value: stats.total, icon: Package, color: 'text-blue-600' },
-          { label: 'Pending', value: stats.pending, icon: Clock, color: 'text-yellow-600' },
-          { label: 'Processing', value: stats.processing, icon: Package, color: 'text-purple-600' },
-          { label: 'Out for Delivery', value: stats.out_for_delivery, icon: Truck, color: 'text-orange-600' },
-          { label: 'Delivered', value: stats.delivered, icon: CheckCircle, color: 'text-green-600' },
-          { label: 'Profit', value: formatCurrency(stats.totalProfit), icon: IndianRupee, color: 'text-blue-600' },
-        ].map((stat, idx) => (
-          <Card key={idx}>
-            <CardContent className="p-4 mt-3 flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-600">{stat.label}</p>
-                <p className={`text-xl font-bold ${stat.color}`}>{stat.value}</p>
-              </div>
-              <stat.icon className={`h-6 w-6 ${stat.color}`} />
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+          <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
+            {[
+              { label: 'Total', value: stats.total, icon: Package, color: 'text-blue-600', filterable: false },
+              { label: 'Pending', value: stats.pending, icon: Clock, color: 'text-yellow-600', filterable: true, status: 'pending' },
+              { label: 'Processing', value: stats.processing, icon: Package, color: 'text-purple-600', filterable: true, status: 'processing' },
+              { label: 'Out for Delivery', value: stats.out_for_delivery, icon: Truck, color: 'text-orange-600', filterable: true, status: 'out_for_delivery' },
+              { label: 'Delivered', value: stats.delivered, icon: CheckCircle, color: 'text-green-600', filterable: true, status: 'delivered' },
+              { label: 'Profit', value: formatCurrency(stats.totalProfit), icon: IndianRupee, color: 'text-blue-600', filterable: false },
+            ].map((stat, idx) => (
+              <Card
+                key={idx}
+                className={`cursor-pointer transition-all duration-200 hover:shadow-lg ${
+                  filters.status === stat.status
+                    ? 'ring-2 ring-blue-500 bg-blue-50'
+                    : 'hover:bg-gray-50'
+                }`}
+                onClick={() => {
+                  if (stat.filterable) {
+                    // Toggle between the specific status and 'all'
+                    const newStatus = filters.status === stat.status ? 'all' : stat.status;
+                    updateFilter('status', newStatus);
+                  }
+                }}
+              >
+                <CardContent className="p-4 mt-3 flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-gray-600">{stat.label}</p>
+                    <p className={`text-xl font-bold ${stat.color}`}>{stat.value}</p>
+                  </div>
+                  <stat.icon className={`h-6 w-6 ${stat.color}`} />
+                </CardContent>
+              </Card>
+            ))}
+          </div>
 
 
 
       {/* Search and Filter Section */}
       <div className="mt-4">
         <Card className="mb-4">
-          <CardContent className="p-4 flex mt-5 flex-col sm:flex-row gap-4 items-center justify-center">
+          <CardContent className="p-4 flex flex-col sm:flex-row gap-4 items-center justify-center">
             <div className="relative flex-1 max-w-md">
               <Input
                 placeholder="Search orders..."

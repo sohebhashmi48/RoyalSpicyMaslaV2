@@ -23,8 +23,8 @@ export const Dialog = ({ children, open, onOpenChange }) => {
         onClick={() => onOpenChange(false)}
       />
       <div className="relative z-50 w-full max-w-4xl max-h-[90vh] flex items-center justify-center">
-        {React.Children.map(children, child =>
-          React.cloneElement(child, { onOpenChange })
+        {React.Children.map(children, child => 
+          child ? React.cloneElement(child, { onOpenChange }) : null
         )}
       </div>
     </div>

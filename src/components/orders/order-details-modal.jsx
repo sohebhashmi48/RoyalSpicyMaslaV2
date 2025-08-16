@@ -167,14 +167,6 @@ export default function OrderDetailsModal({ order, isOpen, onClose, onRefresh })
         const result = await response.json();
 
         if (result.success && result.data) {
-          console.log('🔥 [ORDER DETAILS DEBUG] Received order data:', {
-            orderId: result.data.id,
-            orderNumber: result.data.order_number,
-            itemsCount: result.data.items?.length || 0,
-            mixItems: result.data.items?.filter(item => item.source === 'mix-calculator') || [],
-            firstMixItem: result.data.items?.[0]
-          });
-          
           setOrderDetails(result.data);
           setNewStatus(result.data.status);
         }
@@ -285,6 +277,7 @@ export default function OrderDetailsModal({ order, isOpen, onClose, onRefresh })
 
       // Get customer phone from order data
       const customerPhone = paymentConfirmDialog.orderData?.customer_phone;
+
       if (!customerPhone) {
         toast({
           title: 'Error',
@@ -494,7 +487,7 @@ export default function OrderDetailsModal({ order, isOpen, onClose, onRefresh })
                       <MapPin className="h-4 w-4 mt-0.5" />
                       {displayOrder.delivery_address}
                     </p>
-          </div>
+                  </div>
                 </div>
               </div>
 
@@ -515,20 +508,19 @@ export default function OrderDetailsModal({ order, isOpen, onClose, onRefresh })
                     </thead>
                     <tbody className="divide-y divide-gray-200">
                       {(displayOrder.items || []).map((item, index) => {
-                  let customDetails = null;
-                  if (item.custom_details) {
-                    try {
-                      // MySQL JSON fields are returned as objects, not strings
-                      customDetails = typeof item.custom_details === 'string'
-                        ? JSON.parse(item.custom_details)
-                        : item.custom_details;
-                    } catch (e) {
-                      console.error('Error parsing custom_details:', e);
-                      customDetails = item.custom_details; // Fallback to raw data
-                    }
-                  }
+                        let customDetails = null;
+                        if (item.custom_details) {
+                          try {
+                            // MySQL JSON fields are returned as objects, not strings
+                            customDetails = typeof item.custom_details === 'string'
+                              ? JSON.parse(item.custom_details)
+                              : item.custom_details;
+                          } catch (e) {
+                            customDetails = item.custom_details; // Fallback to raw data
+                          }
+                        }
 
-                  return (
+                        return (
                           <React.Fragment key={index}>
                             <tr>
                               <td className="px-4 py-3">
@@ -536,11 +528,11 @@ export default function OrderDetailsModal({ order, isOpen, onClose, onRefresh })
                                   <div className="font-medium text-gray-900">{item.product_name}</div>
                                   {item.source === 'mix-calculator' && (
                                     <div className="text-xs text-blue-600">Mix Item</div>
-                              )}
-                              {item.source === 'custom' && (
+                                  )}
+                                  {item.source === 'custom' && (
                                     <div className="text-xs text-purple-600">Custom Item</div>
-                              )}
-                            </div>
+                                  )}
+                                </div>
                               </td>
                               <td className="px-4 py-3 text-right text-sm text-gray-900">
                                 {formatQuantity(item.quantity)} {item.unit}
@@ -564,7 +556,7 @@ export default function OrderDetailsModal({ order, isOpen, onClose, onRefresh })
                                       </h6>
                                       <div className="text-xs text-blue-600 bg-blue-100 px-2 py-1 rounded">
                                         {customDetails.mixItems.length} items
-                          </div>
+                                      </div>
                                     </div>
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                       {customDetails.mixItems.map((mixItem, mixIndex) => (
@@ -573,21 +565,23 @@ export default function OrderDetailsModal({ order, isOpen, onClose, onRefresh })
                                             <div>
                                               <div className="font-medium text-gray-900 text-sm">{mixItem.name}</div>
                                               <div className="text-xs text-gray-500">@ {formatCurrency(mixItem.price || 0)}/kg</div>
-                        </div>
-                        <div className="text-right">
+                                            </div>
+                                            <div className="text-right">
                                               <div className="font-bold text-blue-600">
                                                 {formatQuantity(mixItem.calculatedQuantity || mixItem.quantity || 0)} kg
-                              </div>
+                                              </div>
                                               <div className="text-xs text-gray-500">= {formatCurrency(mixItem.actualCost || mixItem.allocatedBudget || 0)}</div>
-                              </div>
-                            </div>
+                                            </div>
+                                          </div>
                                         </div>
                                       ))}
                                     </div>
                                     <div className="mt-3 pt-3 border-t border-blue-200">
                                       <div className="flex justify-between text-sm">
                                         <span className="text-blue-700 font-medium">Total Mix Weight:</span>
-                                        <span className="text-blue-800 font-bold">{customDetails.totalWeight || item.quantity} kg</span>
+                                        <span className="text-blue-800 font-bold">
+                                          {(customDetails.totalWeight?.toFixed(3) || item.quantity?.toFixed(3)) + ' kg'}
+                                        </span>
                                       </div>
                                       <div className="flex justify-between text-sm">
                                         <span className="text-blue-700 font-medium">Total Budget:</span>
@@ -599,12 +593,12 @@ export default function OrderDetailsModal({ order, isOpen, onClose, onRefresh })
                               </tr>
                             )}
                           </React.Fragment>
-                                );
-                              })}
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
-                            </div>
+              </div>
 
               {displayOrder.notes && (
                 <div>
@@ -615,9 +609,9 @@ export default function OrderDetailsModal({ order, isOpen, onClose, onRefresh })
                   <div className="bg-gray-50 rounded-lg p-4">
                     <p className="text-gray-700 whitespace-pre-wrap">{displayOrder.notes}</p>
                   </div>
-                                  </div>
+                </div>
               )}
-                                  </div>
+            </div>
 
             <div className="space-y-6">
               <div className="bg-gray-50 rounded-lg p-4">
@@ -629,31 +623,31 @@ export default function OrderDetailsModal({ order, isOpen, onClose, onRefresh })
                   <div className="flex justify-between">
                     <span className="text-gray-600">Subtotal</span>
                     <span className="font-medium">{formatCurrency(displayOrder.subtotal)}</span>
-                                      </div>
+                  </div>
                   <div className="flex justify-between">
                     <span className="text-gray-600">Delivery Fee</span>
                     <span className="font-medium">{displayOrder.delivery_fee === 0 ? 'FREE' : formatCurrency(displayOrder.delivery_fee || 0)}</span>
-                                </div>
+                  </div>
                   <div className="border-t border-gray-200 pt-3">
                     <div className="flex justify-between">
                       <span className="text-lg font-semibold text-gray-900">Total</span>
                       <span className="text-lg font-bold text-blue-600">{formatCurrency(displayOrder.total_amount)}</span>
-                              </div>
-                            </div>
+                    </div>
+                  </div>
                   <div className="border-t border-gray-200 pt-3 space-y-2">
                     <div className="flex justify-between">
                       <span className="text-gray-600">Payment Status</span>
                       <span className={`font-medium ${displayOrder.payment_status === 'paid' ? 'text-green-600' : displayOrder.payment_status === 'partial' ? 'text-yellow-600' : 'text-red-600'}`}>
                         {displayOrder.payment_status || 'unpaid'}
-                              </span>
-                            </div>
+                      </span>
+                    </div>
                     {displayOrder.payment_method && (
                       <div className="flex justify-between">
                         <span className="text-gray-600">Payment Method</span>
                         <span className="font-medium capitalize">{displayOrder.payment_method}</span>
-                              </div>
-                            )}
-                          </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -698,7 +692,7 @@ export default function OrderDetailsModal({ order, isOpen, onClose, onRefresh })
                       disabled={isLoading}
                       className="w-full px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      {isLoading ? 'Processing...' : 'Mark as Delivered'}
+                      {isLoading ? 'Processing...' : 'Mark as Delivered & Record Payment'}
                     </button>
                   )}
                 </div>
@@ -710,22 +704,22 @@ export default function OrderDetailsModal({ order, isOpen, onClose, onRefresh })
                   Order Timeline
                 </h3>
                 <div className="space-y-3 text-sm">
-                <div className="flex justify-between">
+                  <div className="flex justify-between">
                     <span className="text-gray-600">Created</span>
                     <span className="text-gray-900">{formatDate(displayOrder.created_at)}</span>
-                </div>
+                  </div>
                   {displayOrder.approved_at && (
-                <div className="flex justify-between">
+                    <div className="flex justify-between">
                       <span className="text-gray-600">Approved</span>
                       <span className="text-gray-900">{formatDate(displayOrder.approved_at)}</span>
-                </div>
+                    </div>
                   )}
                   {displayOrder.delivered_at && (
                     <div className="flex justify-between">
                       <span className="text-gray-600">Delivered</span>
                       <span className="text-gray-900">{formatDate(displayOrder.delivered_at)}</span>
                     </div>
-                )}
+                  )}
                 </div>
               </div>
             </div>

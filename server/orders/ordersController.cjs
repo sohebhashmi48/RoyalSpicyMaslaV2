@@ -544,11 +544,21 @@ const updateOrderStatus = async (req, res) => {
               const billId = billResult.insertId;
               const paymentAmount = order.total_amount;
               
+              // Debug the payment data
+              console.log('Creating payment record:', {
+                customerId,
+                billId,
+                paymentAmount,
+                paymentMethod: 'full',
+                referenceNumber: `Payment for order ${order.order_number} (Bill ${billNumber})`,
+                notes: `/api/receipts/bill-${billId}.pdf`
+              });
+
               await connection.execute(`
                 INSERT INTO customer_payments (
                   customer_id, bill_id, payment_date, amount,
-                  payment_method, reference_number, notes, receipt_url
-                ) VALUES (?, ?, CURDATE(), ?, 'full_payment', ?, ?, ?)
+                  payment_method, reference_number, notes
+                ) VALUES (?, ?, CURDATE(), ?, 'bank_transfer', ?, ?)
               `, [
                 customerId,
                 billId,

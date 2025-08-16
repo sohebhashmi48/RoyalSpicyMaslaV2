@@ -56,11 +56,32 @@ const saveAllocations = async (req, res) => {
       const quantity = parseFloat(a.quantity);
       if (!productId || !a.batch || isNaN(quantity) || quantity <= 0) continue;
 
+      // Handle mix items by setting order_item_id to NULL
+      let orderItemId = null; // Default to NULL for safety
+      
+      if (a.source !== 'mix' && a.mix_component_index === undefined && a.order_item_id) {
+        // Only set order_item_id for non-mix items that have a valid integer value
+        const orderId = parseInt(a.order_item_id);
+        if (!isNaN(orderId)) {
+          orderItemId = orderId;
+        }
+      }
+
+      console.log('Inserting allocation:', {
+        order_id: id,
+        order_item_id: orderItemId,
+        product_id: productId,
+        product_name: a.product_name || '',
+        batch: a.batch,
+        quantity: quantity,
+        unit: a.unit || 'kg'
+      });
+
       await connection.execute(
         `INSERT INTO order_inventory_allocations (
            order_id, order_item_id, product_id, product_name, batch, quantity, unit
          ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [id, a.order_item_id || null, productId, a.product_name || '', a.batch, quantity, a.unit || 'kg']
+        [id, orderItemId, productId, a.product_name || '', a.batch, quantity, a.unit || 'kg']
       );
     }
 
